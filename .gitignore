@@ -356,3 +356,7 @@ MigrationBackup/
 *.ptx
 *.cubin
 *.fatbin
+
+VS project files
+*.sln
+*.vcxproj
