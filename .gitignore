@@ -348,3 +348,11 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# CUDA file extensions
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
