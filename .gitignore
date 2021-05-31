@@ -361,3 +361,4 @@ VS project files
 *.sln
 *.vcxproj
 *.vcxproj.filters
+*.props
