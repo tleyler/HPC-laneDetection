@@ -361,4 +361,4 @@ VS project files
 *.sln
 *.vcxproj
 *.vcxproj.filters
-OpenCV_Debug.props
+*.props

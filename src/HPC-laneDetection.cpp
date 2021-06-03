@@ -1,8 +1,34 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/imgproc/imgproc.hpp"
+#include "ed_pixel.h"
 #include <iostream>
 
 using namespace cv;
+
+void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& framesOut)
+{
+    try
+    {
+        cv::VideoCapture cap(videoFilePath);
+        if (!cap.isOpened())
+        {
+            std::cerr << "Unable to open video file!" << std::endl;
+            return;
+        }
+        for (int frameNum = 0; frameNum < cap.get(cv::CAP_PROP_FRAME_COUNT); frameNum++)
+        {
+            cv::Mat frame;
+            cap >> frame;
+            framesOut.push_back(frame);
+            // VISUAL DEBUG: display each frame on screen
+            // cv::imshow("Extracted Frame", frame);
+        }
+    }
+    catch (cv::Exception& e)
+    {
+        std::cerr << e.msg << std::endl;
+    }
+}
 
 // This function accepts a single frame and detects edges in it using opencv
 // Canny(). It returns the edge detected image.
@@ -20,23 +46,23 @@ Mat opencvCanny(const Mat& frame) {
     return edgeDetectedFrame;
 }
 
-int main()
+// COMMAND LINE ARGUMENTS
+// argv[0] = program name
+// argv[1] = file path to video file
+int main(int argc, char** argv)
 {
-    // ------------------------------------------------------------------------
-    // Code in this section is just to pull, display, and manipulate a test
-    // image frame until we have the capability for working with video all done
-    
-    // pull the test image and display it
-    Mat frame = imread("testingFrame.jpg");
-    imshow("Original Frame", frame);
-    // also call the edge detection function that utilizes opencv Canny() and
-    // display the output of that also
-    imshow ("Edge Detected Frame", opencvCanny(frame));
-    // wait for input, to give the user a chance to view images
-    waitKey(0);
+    std::string videoFilePath = argv[1];
+    std::vector<cv::Mat> framesOutput;
+    extractFrames(videoFilePath, framesOutput);
 
-    // End test image frame section
-    // ------------------------------------------------------------------------
+    // Apply and output opencvCanny() to each extracted frame
+    std::vector<std::vector<pixel_t>> pixelValues;
+    for (int i = 0; i < framesOutput.size(); i++)
+    {
+        // call some function to convert each element of frame<Mat> to 2D vector of pixel_t
+        imshow("Edge Detected Frame", opencvCanny(framesOutput[i]));
+        waitKey(0);
+    }
+
+    return 0;
 }
-
-
