@@ -2,6 +2,7 @@
 #include "opencv2/imgproc/imgproc.hpp"
 #include "ed_pixel.h"
 #include <iostream>
+#include <vector>
 
 using namespace cv;
 
@@ -46,6 +47,14 @@ Mat opencvCanny(const Mat& frame) {
     return edgeDetectedFrame;
 }
 
+// This function accepts a single frame and performs a hough transform on it 
+// Returns a vector of the lines that were detected
+void houghTransform(const Mat& frame, std::vector<Vec2f> houghLines) {
+    // create the houghLines vector with HoughLines method
+    HoughLines(frame, houghLines, 1, CV_PI / 180, 150, 0, 0);
+    return;
+}
+
 // COMMAND LINE ARGUMENTS
 // argv[0] = program name
 // argv[1] = file path to video file
@@ -60,8 +69,17 @@ int main(int argc, char** argv)
     for (int i = 0; i < framesOutput.size(); i++)
     {
         // call some function to convert each element of frame<Mat> to 2D vector of pixel_t
-        imshow("Edge Detected Frame", opencvCanny(framesOutput[i]));
+
+        // create Mat to hold the edges from canny edge detection
+        Mat edges = opencvCanny(framesOutput[i]);
+        imshow("Edge Detected Frame", edges);
         waitKey(0);
+
+        // perform hough transform, storing lines detected in houghLines vector
+        std::vector<Vec2f> houghLines;
+        houghTransform(edges, houghLines);
+
+
     }
 
     return 0;
