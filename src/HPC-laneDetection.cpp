@@ -49,7 +49,7 @@ Mat opencvCanny(const Mat& frame) {
 
 // This function accepts a single frame and performs a hough transform on it 
 // Returns a vector of the lines that were detected
-void houghTransform(const Mat& frame, std::vector<Vec2f> houghLines) {
+void houghTransform(const Mat& frame, std::vector<Vec2f> &houghLines) {
     // create the houghLines vector with HoughLines method
     HoughLines(frame, houghLines, 1, CV_PI / 180, 150, 0, 0);
     return;
