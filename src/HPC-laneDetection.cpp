@@ -38,7 +38,7 @@ Mat opencvCanny(const Mat& frame) {
     // larger the number is, the less it will detect, only picking up larger 
     // edges. Through some quick experimentation I settled on 75, but this can
     // be adjusted later if we need more or less edges.
-    double edgeThreshold = 75.0;
+    double edgeThreshold = 200.0;
 
     // this mat will hold the edges image
     Mat edgeDetectedFrame;
@@ -55,8 +55,23 @@ void houghTransform(const Mat& frame, std::vector<Vec2f> &houghLines) {
     return;
 }
 
-void drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
-    
+Mat drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
+    Mat output = frame.clone();
+    // Draw the lines
+    // Loop for drawing the lines on frame pulled from houghlines.cpp in opencv tutorials
+    for (size_t i = 0; i < houghLines.size(); i++)
+    {
+        float rho = houghLines[i][0], theta = houghLines[i][1];
+        Point pt1, pt2;
+        double a = cos(theta), b = sin(theta);
+        double x0 = a * rho, y0 = b * rho;
+        pt1.x = cvRound(x0 + 1000 * (-b));
+        pt1.y = cvRound(y0 + 1000 * (a));
+        pt2.x = cvRound(x0 - 1000 * (-b));
+        pt2.y = cvRound(y0 - 1000 * (a));
+        line(output, pt1, pt2, Scalar(0, 0, 255), 3, LINE_AA);
+    }
+    return output;
 }
 
 // COMMAND LINE ARGUMENTS
@@ -82,7 +97,8 @@ int main(int argc, char** argv)
         // perform hough transform, storing lines detected in houghLines vector
         std::vector<Vec2f> houghLines;
         houghTransform(edges, houghLines);
-
+        imshow("lanes", drawLines(framesOutput[i], houghLines));
+        waitKey(0);
 
     }
 
