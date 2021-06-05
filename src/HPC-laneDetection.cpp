@@ -55,6 +55,9 @@ void houghTransform(const Mat& frame, std::vector<Vec2f> &houghLines) {
     return;
 }
 
+// This method determines the two best candidates out of all the lines picked
+// up by the hough transform for the left and right lane, then draws them 
+// on the original color frame image
 Mat drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
     Mat output = frame.clone();
 
