@@ -38,7 +38,7 @@ Mat opencvCanny(const Mat& frame) {
     // larger the number is, the less it will detect, only picking up larger 
     // edges. Through some quick experimentation I settled on 75, but this can
     // be adjusted later if we need more or less edges.
-    double edgeThreshold = 200.0;
+    double edgeThreshold = 150.0;
 
     // this mat will hold the edges image
     Mat edgeDetectedFrame;
@@ -57,11 +57,83 @@ void houghTransform(const Mat& frame, std::vector<Vec2f> &houghLines) {
 
 Mat drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
     Mat output = frame.clone();
-    // Draw the lines
-    // Loop for drawing the lines on frame pulled from houghlines.cpp in opencv tutorials
+
+    // handle edge case of not enough lines detected
+    if (houghLines.size() < 2) {
+        std::cerr << "Not enough lines detected with hough transform" << std::endl;
+        return output;
+    }
+
+    // determine which lines will be the left and right lane lines
+    int leftLaneCandidate = 0;
+    float leftCandidateLeastDifference = 100.0f;
+    int rightLaneCandidate = 0;
+    float rightCandidateLeastDifference = 100.0f;
+    float difference = 0.0f;
+    
+    // for the left lane you will want the line with theta closest to 1.57 or 
+    // 4.71 that is < 1.57 or < 4.71. You are looking for the smallest 
+    // difference on either of those metrics
+    // for the right lane you will want the line with theta closest to 1.57 or 
+    // 4.71 that is > 1.57 or > 4.71. You are looking for the smallest 
+    // difference on either of those metrics
     for (size_t i = 0; i < houghLines.size(); i++)
     {
-        float rho = houghLines[i][0], theta = houghLines[i][1];
+        float theta = houghLines[i][1];
+        if (theta < 3.14f) {
+            // looking at left lane candidate
+            if (theta < 1.57f) {
+                difference = 1.57f - theta;
+                // if true you have found a better left candidate
+                if (difference < leftCandidateLeastDifference) {
+                    leftLaneCandidate = i;
+                    leftCandidateLeastDifference = difference;
+                }
+            }
+            // looking at right lane candidate
+            if (theta >= 1.57f) {
+                difference = theta - 1.57f;
+                // if true you have found a better right candidate
+                if (difference < rightCandidateLeastDifference) {
+                    rightLaneCandidate = i;
+                    rightCandidateLeastDifference = difference;
+                }
+            }
+        }
+        else if (theta >= 3.14f) {
+            // looking at left lane candidate
+            if (theta < 4.71f) {
+                difference = 4.71f - theta;
+                //if true you have found a better left candidate
+                if (difference < leftCandidateLeastDifference) {
+                    leftLaneCandidate = i;
+                    leftCandidateLeastDifference = difference;
+                }
+            }
+            // looking at right lane candidate
+            if (theta >= 4.71f) {
+                difference = theta - 4.71f;
+                // if true you have found a better right candidate
+                if (difference < rightCandidateLeastDifference) {
+                    rightLaneCandidate = i;
+                    rightCandidateLeastDifference = difference;
+                }
+            }
+        }
+    }
+
+    // seperate out just the identified lane lines
+    std::vector<Vec2f> lanes;
+    lanes.push_back(houghLines[leftLaneCandidate]);
+    lanes.push_back(houghLines[rightLaneCandidate]);
+
+
+    // Draw the lines
+    // Code for drawing lines on an image pulled from houghlines.cpp in opencv 
+    // tutorials and adapted for our purpose
+    for (size_t i = 0; i < lanes.size(); i++)
+    {
+        float rho = lanes[i][0], theta = lanes[i][1];
         Point pt1, pt2;
         double a = cos(theta), b = sin(theta);
         double x0 = a * rho, y0 = b * rho;
