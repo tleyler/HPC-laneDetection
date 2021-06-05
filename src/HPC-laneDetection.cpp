@@ -55,6 +55,10 @@ void houghTransform(const Mat& frame, std::vector<Vec2f> &houghLines) {
     return;
 }
 
+void drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
+    
+}
+
 // COMMAND LINE ARGUMENTS
 // argv[0] = program name
 // argv[1] = file path to video file
