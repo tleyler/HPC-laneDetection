@@ -71,53 +71,29 @@ Mat drawLines(const Mat& frame, std::vector<Vec2f>& houghLines) {
     float rightCandidateLeastDifference = 100.0f;
     float difference = 0.0f;
     
-    // for the left lane you will want the line with theta closest to 1.57 or 
-    // 4.71 that is < 1.57 or < 4.71. You are looking for the smallest 
-    // difference on either of those metrics
-    // for the right lane you will want the line with theta closest to 1.57 or 
-    // 4.71 that is > 1.57 or > 4.71. You are looking for the smallest 
-    // difference on either of those metrics
+    // for the left lane you want to identify the line with theta greater than
+    // 1/2 pi with the smallest difference of pi - theta
+    // for the right lane you want to identify the line with theta less than 
+    // 1/2 pi with the smallest theta
     for (size_t i = 0; i < houghLines.size(); i++)
     {
         float theta = houghLines[i][1];
-        if (theta < 3.14f) {
-            // looking at left lane candidate
-            if (theta < 1.57f) {
-                difference = 1.57f - theta;
-                // if true you have found a better left candidate
-                if (difference < leftCandidateLeastDifference) {
-                    leftLaneCandidate = i;
-                    leftCandidateLeastDifference = difference;
-                }
-            }
-            // looking at right lane candidate
-            if (theta >= 1.57f) {
-                difference = theta - 1.57f;
-                // if true you have found a better right candidate
-                if (difference < rightCandidateLeastDifference) {
-                    rightLaneCandidate = i;
-                    rightCandidateLeastDifference = difference;
-                }
+        // looking at left lane candidate
+        if (theta >= 1.57f) {
+            difference = 3.14f - theta;
+            // if true you have found a better left candidate
+            if (difference < leftCandidateLeastDifference) {
+                leftLaneCandidate = i;
+                leftCandidateLeastDifference = difference;
             }
         }
-        else if (theta >= 3.14f) {
-            // looking at left lane candidate
-            if (theta < 4.71f) {
-                difference = 4.71f - theta;
-                //if true you have found a better left candidate
-                if (difference < leftCandidateLeastDifference) {
-                    leftLaneCandidate = i;
-                    leftCandidateLeastDifference = difference;
-                }
-            }
-            // looking at right lane candidate
-            if (theta >= 4.71f) {
-                difference = theta - 4.71f;
-                // if true you have found a better right candidate
-                if (difference < rightCandidateLeastDifference) {
-                    rightLaneCandidate = i;
-                    rightCandidateLeastDifference = difference;
-                }
+        // looking at right lane candidate
+        if (theta < 1.57f) {
+            difference = theta;
+            // if true you have found a better right candidate
+            if (difference < rightCandidateLeastDifference) {
+                rightLaneCandidate = i;
+                rightCandidateLeastDifference = difference;
             }
         }
     }
