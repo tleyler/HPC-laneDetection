@@ -1,6 +1,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/imgproc/imgproc.hpp"
 #include "ed_pixel.h"
+#include "kernel.cuh"
 #include <iostream>
 
 using namespace cv;
