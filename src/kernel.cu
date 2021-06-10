@@ -329,15 +329,14 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
     sobelCuda(blurred, sobel);
     // VISUAL DEBUG: compare our implementation with openCV implementation
-    
-    cv::Mat opencv_sobel_x = cv::Mat(rows, cols, CV_8UC1);
-    cv::Sobel(blurred, opencv_sobel_x, CV_8UC1, 1, 0); // calculates gradient in x direction
-    cv::Mat opencv_sobel_x_and_y = cv::Mat(rows, cols, CV_8UC1);
-    cv::Sobel(opencv_sobel_x, opencv_sobel_x_and_y, CV_8UC1, 0, 1); // calculates gradient in y direction
+    /*
+    cv::Mat opencv_sobel = cv::Mat(rows, cols, CV_8UC1);
+    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 1, 1); 
     imshow("Intensity Gradient Image", sobel);
     cv::waitKey();
-    imshow("openCV Intensity Gradient", opencv_sobel_x_and_y);
+    imshow("openCV Intensity Gradient", opencv_sobel);
     cv::waitKey();
+    */
     
 
     return image;
