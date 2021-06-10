@@ -7,45 +7,89 @@
 #define CHANNELS 3
 #define BLOCK_SIZE 16
 #define TILE_SIZE 16
+
 __constant__ int gaussian[9];
+__constant__ int sobel_x[9];
+__constant__ int sobel_y[9];
+
+__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+    int gx = 0; 
+    int gy = 0;
+
+    // no need to calculate sobel[1, 4, 7] because all those values will be 0
+    gx = (sobel_x[0] * deviceInput[(y - 1) * width + (x - 1)]) +
+         (sobel_x[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+         (sobel_x[3] * deviceInput[(  y  ) * width + (x - 1)]) +
+         (sobel_x[5] * deviceInput[(  y  ) * width + (x + 1)]) +
+         (sobel_x[6] * deviceInput[(y + 1) * width + (x - 1)]) +
+         (sobel_x[8] * deviceInput[(y + 1) * width + (x + 1)]);
+
+    // no need to calculate sobel[3:5] because all those values will be 0
+    gy = (sobel_y[0] * deviceInput[(y - 1) * width + (x - 1)]) +
+         (sobel_y[1] * deviceInput[(y - 1) * width + (  x  )]) +
+         (sobel_y[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+         (sobel_y[6] * deviceInput[(y + 1) * width + (x - 1)]) +
+         (sobel_y[7] * deviceInput[(y + 1) * width + (  x  )]) +
+         (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
+
+    deviceOutput[y * width + x] = static_cast<unsigned char>(sqrt((float)(gx * gx) + (gy * gy)));
+}
+
+void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
+{
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Populate the global memory symbols with Sobel kernel values
+    int h_sobel_x[9] = {1, 0, -1, 2, 0, -2, 1, 0, -1};
+    int h_sobel_y[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
+    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
+
+    // Call the kernel to convert the image to grayscale
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
 
 
 __global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
 {
-    const int KERNEL_SIZE = 9;
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    __shared__ unsigned char inputShared[TILE_SIZE];
-    inputShared[threadIdx.x] = deviceInput[i];
+    int sum = gaussian[0] * deviceInput[(y - 1) * width + (x - 1)] +
+              gaussian[1] * deviceInput[(y - 1) * width + (  x  )] +
+              gaussian[2] * deviceInput[(y - 1) * width + (x + 1)] +
+              gaussian[3] * deviceInput[(  y  ) * width + (x - 1)] +
+              gaussian[4] * deviceInput[(  y  ) * width + (  x  )] +
+              gaussian[5] * deviceInput[(  y  ) * width + (x + 1)] +
+              gaussian[6] * deviceInput[(y + 1) * width + (x - 1)] +
+              gaussian[7] * deviceInput[(y + 1) * width + (  x  )] +
+              gaussian[8] * deviceInput[(y + 1) * width + (x + 1)];
 
-    __syncthreads();
+    int weights = gaussian[0] + gaussian[1] + gaussian[2] +
+                  gaussian[3] + gaussian[4] + gaussian[5] +
+                  gaussian[6] + gaussian[7] + gaussian[8];
 
-    int tileStartIdx =  blockIdx.x * blockDim.x;
-    int tileEndIdx = (blockIdx.x + 1) * blockDim.x;
-
-    int j = i - (KERNEL_SIZE / 2);
-
-    int weight = 0;
-    int sum = 0;
-
-    for (int k = 0; k < KERNEL_SIZE; k++)
-    {
-        int current = j + k;
-        if (current >= 0 && current < (width * height)) 
-        {
-            if (current >= tileStartIdx && current < tileEndIdx)
-            {
-                weight += inputShared[threadIdx.x + k - (KERNEL_SIZE / 2)] * gaussian[k];
-                sum += gaussian[k];
-            }
-            else
-            {
-                weight += deviceInput[current] * gaussian[k];
-                sum += gaussian[k];
-            }
-        }
-    }
-    deviceOutput[i] = static_cast<unsigned char>(weight / sum);
+    deviceOutput[y * width + x] = static_cast<unsigned char>(sum / weights);
 }
 
 
@@ -66,9 +110,9 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
 
     // Call the kernel to convert the image to grayscale
-    const dim3 gridSize((hostInput.rows * hostInput.cols + TILE_SIZE - 1) / TILE_SIZE, 1, 1);
-    const dim3 blockSize(TILE_SIZE, 1, 1);
-    gaussianKernel << < gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows); 
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows); 
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -258,14 +302,42 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // convert the image to grayscale 
     cv::Mat grayscale = cv::Mat(rows, cols, CV_8UC1);
     grayscaleCuda(image, grayscale);
-    //imshow("Grayscale Image", grayscale);
-    //cv::waitKey(0);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    /*
+    cv::Mat opencv_grayscale = cv::Mat(rows, cols, CV_8UC1);
+    cvtColor(image, opencv_grayscale, cv::COLOR_RGB2GRAY);
+    imshow("Grayscale Image", grayscale);
+    cv::waitKey(0);
+    imshow("openCV Grayscale Image", opencv_grayscale);
+    cv::waitKey(0);
+    */
 
     // apply the Gaussian filter
     cv::Mat blurred = cv::Mat(rows, cols, CV_8UC1);
     gaussianCuda(grayscale, blurred);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    /*
+    cv::Mat opencv_blurred = cv::Mat(rows, cols, CV_8UC1);
+    cv::GaussianBlur(grayscale, opencv_blurred, cv::Size(3, 3), 0);
     imshow("Blurred Image", blurred);
     cv::waitKey(0);
+    imshow("openCV Blurred Image", opencv_blurred);
+    cv::waitKey(0);
+    */
+  
+    // apply the Sobel operator
+    cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
+    sobelCuda(blurred, sobel);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    /*
+    cv::Mat opencv_sobel = cv::Mat(rows, cols, CV_8UC1);
+    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 1, 1); 
+    imshow("Intensity Gradient Image", sobel);
+    cv::waitKey();
+    imshow("openCV Intensity Gradient", opencv_sobel);
+    cv::waitKey();
+    */
+    
 
     return image;
 }
