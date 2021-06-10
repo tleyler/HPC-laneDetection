@@ -248,7 +248,7 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     {
         float theta = houghLines[i][1];
         // looking at left lane candidate
-        if (theta >= 1.57f) {
+        if (theta >= 1.5707f) {
             difference = 3.14f - theta;
             // if true you have found a better left candidate
             if (difference < leftCandidateLeastDifference) {
@@ -257,7 +257,7 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
             }
         }
         // looking at right lane candidate
-        if (theta < 1.57f) {
+        if (theta < 1.5707f) {
             difference = theta;
             // if true you have found a better right candidate
             if (difference < rightCandidateLeastDifference) {
@@ -288,6 +288,18 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
         pt2.y = cvRound(y0 - 1000 * (a));
         line(output, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
+
+    float rho = (4 * frame.rows) / 7, theta = 1.5707f;
+    cv::Point pt1, pt2;
+    double a = cos(theta), b = sin(theta);
+    double x0 = a * rho, y0 = b * rho;
+    pt1.x = cvRound(x0 + 5000 * (-b));
+    pt1.y = cvRound(y0 + 5000 * (a));
+    pt2.x = cvRound(x0 - 5000 * (-b));
+    pt2.y = cvRound(y0 - 5000 * (a));
+    line(output, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+
+
     return output;
 }
 
@@ -351,7 +363,7 @@ int main(int argc, char** argv)
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
-    bool gpuAccelerated = true;
+    bool gpuAccelerated = false;
 
     for (int i = 0; i < framesOutput.size(); i++)
     {
@@ -362,8 +374,8 @@ int main(int argc, char** argv)
         if (!gpuAccelerated) {
             // create Mat to hold the edges from canny edge detection
             edges = opencvCanny(framesOutput[i]);
-            imshow("Edge Detected Frame", edges);
-            cv::waitKey(0);
+            //imshow("Edge Detected Frame", edges);
+            //cv::waitKey(0);
         }
 
         // This section is for when using our own GPU accelerated path
