@@ -317,19 +317,35 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // convert the image to grayscale 
     cv::Mat grayscale = cv::Mat(rows, cols, CV_8UC1);
     grayscaleCuda(image, grayscale);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    //cv::Mat opencv_grayscale = cv::Mat(rows, cols, CV_8UC1);
+    //cvtColor(image, opencv_grayscale, cv::COLOR_RGB2GRAY);
     //imshow("Grayscale Image", grayscale);
+    //cv::waitKey(0);
+    //imshow("openCV Grayscale Image", opencv_grayscale);
     //cv::waitKey(0);
 
     // apply the Gaussian filter
     cv::Mat blurred = cv::Mat(rows, cols, CV_8UC1);
     gaussianCuda(grayscale, blurred);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    //cv::Mat opencv_blurred = cv::Mat(rows, cols, CV_8UC1);
+    //cv::GaussianBlur(grayscale, opencv_blurred, cv::Size(3, 3), 0);
     //imshow("Blurred Image", blurred);
+    //cv::waitKey(0);
+    //imshow("openCV Blurred Image", opencv_blurred);
     //cv::waitKey(0);
   
     // apply the Sobel operator
     cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
     sobelCuda(blurred, sobel);
+    // VISUAL DEBUG: compare our implementation with openCV implementation
+    cv::Mat opencv_sobel = cv::Mat(rows, cols, CV_8UC1);
+    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 1, 0); // calculates gradient in x direction
+    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 0, 1); // calculates gradient in y direction
     imshow("Intensity Gradient Image", sobel);
+    cv::waitKey();
+    imshow("openCV Intensity Gradient", opencv_sobel);
     cv::waitKey();
 
     return image;
