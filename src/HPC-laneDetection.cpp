@@ -1,11 +1,15 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/imgproc/imgproc.hpp"
 #include "ed_pixel.h"
+#include "kernel.cuh"
 #include <iostream>
 #include <vector>
 
 using namespace cv;
 
+// This function takes in a path to a video file (which are passed in as command line args to main)
+// as the first parameter and outputs each extracted frame to a vector of Mat items which is passed 
+// in as the second parameter to the function. 
 void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& framesOut)
 {
     try
@@ -23,6 +27,7 @@ void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& frame
             framesOut.push_back(frame);
             // VISUAL DEBUG: display each frame on screen
             // cv::imshow("Extracted Frame", frame);
+            // waitKey(0);
         }
     }
     catch (cv::Exception& e)
