@@ -20,14 +20,15 @@ __global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOut
     int gx = 0; 
     int gy = 0;
 
-    // no need to calculate sobel[3:5] because all those values will be 0
+    // no need to calculate sobel[1, 4, 7] because all those values will be 0
     gx = (sobel_x[0] * deviceInput[(y - 1) * width + (x - 1)]) +
-         (sobel_x[1] * deviceInput[(  y  ) * width + (x - 1)]) +
-         (sobel_x[2] * deviceInput[(y + 1) * width + (x - 1)]) +
-         (sobel_x[6] * deviceInput[(y - 1) * width + (x + 1)]) +
-         (sobel_x[7] * deviceInput[(  y  ) * width + (x + 1)]) +
+         (sobel_x[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+         (sobel_x[3] * deviceInput[(  y  ) * width + (x - 1)]) +
+         (sobel_x[5] * deviceInput[(  y  ) * width + (x + 1)]) +
+         (sobel_x[6] * deviceInput[(y + 1) * width + (x - 1)]) +
          (sobel_x[8] * deviceInput[(y + 1) * width + (x + 1)]);
 
+    // no need to calculate sobel[3:5] because all those values will be 0
     gy = (sobel_y[0] * deviceInput[(y - 1) * width + (x - 1)]) +
          (sobel_y[1] * deviceInput[(y - 1) * width + (  x  )]) +
          (sobel_y[2] * deviceInput[(y - 1) * width + (x + 1)]) +
