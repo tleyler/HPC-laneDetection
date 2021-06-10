@@ -7,7 +7,66 @@
 #define CHANNELS 3
 #define BLOCK_SIZE 16
 #define TILE_SIZE 16
+
 __constant__ int gaussian[9];
+__constant__ int sobel_x[9];
+__constant__ int sobel_y[9];
+
+__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+    int gx = 0; 
+    int gy = 0;
+
+    // no need to calculate sobel[3:5] because all those values will be 0
+    gx = (sobel_x[0] * deviceInput[(y - 1) * width + (x - 1)]) +
+         (sobel_x[1] * deviceInput[(  y  ) * width + (x - 1)]) +
+         (sobel_x[2] * deviceInput[(y + 1) * width + (x - 1)]) +
+         (sobel_x[6] * deviceInput[(y - 1) * width + (x + 1)]) +
+         (sobel_x[7] * deviceInput[(  y  ) * width + (x + 1)]) +
+         (sobel_x[8] * deviceInput[(y + 1) * width + (x + 1)]);
+
+    gy = (sobel_y[0] * deviceInput[(y - 1) * width + (x - 1)]) +
+         (sobel_y[1] * deviceInput[(y - 1) * width + (  x  )]) +
+         (sobel_y[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+         (sobel_y[6] * deviceInput[(y + 1) * width + (x - 1)]) +
+         (sobel_y[7] * deviceInput[(y + 1) * width + (  x  )]) +
+         (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
+
+    deviceOutput[y * width + x] = sqrt((float)(gx * gx) + (gy * gy));
+}
+
+void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
+{
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Populate the global memory symbols with Sobel kernel values
+    int h_sobel_x[9] = {1, 0, -1, 2, 0, -2, 1, 0, -1};
+    int h_sobel_y[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
+    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
+
+    // Call the kernel to convert the image to grayscale
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
 
 __global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
 {
@@ -195,6 +254,12 @@ int main(int argc, char** argv)
         gaussianCuda(grayscale, blurred);
         imshow("Blurred Image", blurred);
         cv::waitKey(0);
+
+        // apply the Sobel operator
+        cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
+        sobelCuda(blurred, sobel);
+        imshow("Intensity Gradient Image", sobel);
+        cv::waitKey();
 
         // Apply and output opencvCanny() to each extracted frame
         //imshow("Edge Detected Frame", opencvCanny(blurred));
