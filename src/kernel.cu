@@ -35,10 +35,7 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow,
 
 
     // if the value is at or above hystLow, but below hystHigh, color it white
-    // only if it is connected to another edge pixel. Check if neighbors in 
-    // 3x3 around this pixel have a value above hystHigh. If they do not, but 
-    // at least one has a value between the thresholds, check out to 5x5 for
-    // a pixel above hystHigh. If you find one, color white. If not, color black
+    // only if it is connected to another edge pixel.
     if (inputValue < hystHigh && inputValue >= hystLow) {
         // this is a maybe pixel
         deviceOutput[y * width + x] = 125;
@@ -64,10 +61,10 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Call the kernel
-    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), 
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh, 
+    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
         hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
@@ -75,6 +72,7 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
+
 }
 
 
