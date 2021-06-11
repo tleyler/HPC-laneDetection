@@ -13,7 +13,8 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, 
+    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
     // if the value is below hystLow, color pixel as black
 
@@ -32,10 +33,32 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, unsign
 void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 100;
-    int hystHigh = 175;
+    int hystLow = 125;
+    int hystHigh = 200;
 
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
 
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), 
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh, 
+        hystLow, deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
 }
 
 
@@ -343,7 +366,8 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
     // handle edge case of not enough lines detected
     if (houghLines.size() < 2) {
-        std::cerr << "Not enough lines detected with hough transform" << std::endl;
+        std::cerr << "Not enough lines detected with hough transform" 
+            << std::endl;
         return output;
     }
 
