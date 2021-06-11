@@ -13,6 +13,15 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
+__global__ void hysteresisThresholdingKernel() {
+
+}
+
+void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+}
+
+
 __global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* angles, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -456,9 +465,15 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
     nonMaximaSuppressionCuda(sobel, nms, angles);
     imshow("Non-Maxima Suppression Image", nms);
+    
+
+    // perform hysteresis thresholding
+    cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
+    hysteresisThresholdingCuda(nms, hst);
+    imshow("Hysteresis Thresholded Image", hst);
     cv::waitKey();
 
-    return image;
+    return hst;
 }
 
 // COMMAND LINE ARGUMENTS
@@ -470,7 +485,7 @@ int main(int argc, char** argv)
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
-    bool gpuAccelerated = false;
+    bool gpuAccelerated = true;
 
     for (int i = 0; i < framesOutput.size(); i++)
     {
