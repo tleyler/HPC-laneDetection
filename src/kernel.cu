@@ -13,7 +13,7 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, 
+__global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow, 
     unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -38,7 +38,7 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow,
     // only if it is connected to another edge pixel.
     if (inputValue < hystHigh && inputValue >= hystLow) {
         // this is a maybe pixel
-        deviceOutput[y * width + x] = 125;
+        deviceOutput[y * width + x] = 128;
     }
 
 }
@@ -46,8 +46,8 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow,
 void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 50;
-    int hystHigh = 150;
+    int hystLow = 100;
+    int hystHigh = 200;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -58,7 +58,6 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // Copy memory from host to device 
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Call the kernel
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
@@ -528,7 +527,8 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     imshow("Hysteresis Thresholded Image", hst);
     cv::waitKey();
 
-    return hst;
+
+    return image;
 }
 
 // COMMAND LINE ARGUMENTS
