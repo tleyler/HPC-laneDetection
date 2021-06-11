@@ -336,7 +336,9 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     {
         float theta = houghLines[i][1];
         // looking at left lane candidate
-        if (theta >= 1.57f) {
+        // Anything over 1.5707f is a left lane candidate, but to remove errant 
+        // vertical lines, you don't want to consider anything above 2.8416f
+        if (theta >= 1.5707f && theta < 2.8416f) {
             difference = 3.14f - theta;
             // if true you have found a better left candidate
             if (difference < leftCandidateLeastDifference) {
@@ -345,7 +347,9 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
             }
         }
         // looking at right lane candidate
-        if (theta < 1.57f) {
+        // Anything under 1.5707f is a right lane candidate, but to remove 
+        // errant vertical lines, you don't want to consider anything below 0.3f
+        if (theta < 1.5707f && theta > 0.3f) {
             difference = theta;
             // if true you have found a better right candidate
             if (difference < rightCandidateLeastDifference) {
@@ -360,22 +364,41 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     lanes.push_back(houghLines[leftLaneCandidate]);
     lanes.push_back(houghLines[rightLaneCandidate]);
 
-
     // Draw the lines
     // Code for drawing lines on an image pulled from houghlines.cpp in opencv 
     // tutorials and adapted for our purpose
     for (size_t i = 0; i < lanes.size(); i++)
     {
+        // elements of this polar coordinate line
         float rho = lanes[i][0], theta = lanes[i][1];
-        cv::Point pt1, pt2;
-        double a = cos(theta), b = sin(theta);
-        double x0 = a * rho, y0 = b * rho;
-        pt1.x = cvRound(x0 + 1000 * (-b));
-        pt1.y = cvRound(y0 + 1000 * (a));
-        pt2.x = cvRound(x0 - 1000 * (-b));
-        pt2.y = cvRound(y0 - 1000 * (a));
-        line(output, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        double a = cos(theta);
+        double b = sin(theta);
+        double x0 = a * rho;
+        double y0 = b * rho;
+
+        // calculate bottom point to be drawn using x intercept with line
+        // y = frame.rows - 1
+        cv::Point pta;
+        pta.x = cvRound(x0 - ((frame.rows - 1 - y0) / a) * b);
+        pta.y = frame.rows - 1;
+
+        // calculate bottom point to be drawn using x intercept with line
+        // y = (4 * frame.rows) / 7
+        cv::Point ptb;
+        ptb.x = cvRound(x0 - ((((4 * frame.rows) / 7) - y0) / a) * b);
+        ptb.y = (4 * frame.rows) / 7;
+
+        // draw the line
+        line(output, pta, ptb, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+
+        // testing line to show theta values of final lines
+        //std::cerr << "Theta = " << theta << std::endl;
+
     }
+
+    
+
+
     return output;
 }
 
@@ -447,7 +470,7 @@ int main(int argc, char** argv)
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
-    bool gpuAccelerated = true;
+    bool gpuAccelerated = false;
 
     for (int i = 0; i < framesOutput.size(); i++)
     {
@@ -458,8 +481,8 @@ int main(int argc, char** argv)
         if (!gpuAccelerated) {
             // create Mat to hold the edges from canny edge detection
             edges = opencvCanny(framesOutput[i]);
-            imshow("Edge Detected Frame", edges);
-            cv::waitKey(0);
+            //imshow("Edge Detected Frame", edges);
+            //cv::waitKey(0);
         }
 
         // This section is for when using our own GPU accelerated path
