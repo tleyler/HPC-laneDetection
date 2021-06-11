@@ -301,15 +301,39 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
         intersect.y = ((cutoffatan * rho) - (a1 * cutoffrho)) / (cutoffatan - a1);
 
         
+        // elements of this polar coordinate line
+        double a = cos(theta);
+        double b = sin(theta);
+        double x0 = a * rho;
+        double y0 = b * rho;
+
+
+        // calculate bottom point to be drawn using x intercept with line
+        // y = frame.rows - 1
+        cv::Point pta;
+        pta.x = cvRound(x0 - ((frame.rows - 1 - y0) / a) * b);
+        pta.y = frame.rows - 1;
+
+        // calculate bottom point to be drawn using x intercept with line
+        // y = (4 * frame.rows) / 7
+        cv::Point ptb;
+        ptb.x = cvRound(x0 - ((((4 * frame.rows) / 7) - y0) / a) * b);
+        ptb.y = (4 * frame.rows) / 7;
         
-        cv::Point pt1, pt2;
-        double a = cos(theta), b = sin(theta);
-        double x0 = a * rho, y0 = b * rho;
+
+
+        // calculating the first point on the line
+        cv::Point pt1;
         pt1.x = cvRound(x0 + 1000 * (-b));
         pt1.y = cvRound(y0 + 1000 * (a));
+
+        // calculating the second point on the line
+        cv::Point pt2;
         pt2.x = cvRound(x0 - 1000 * (-b));
         pt2.y = cvRound(y0 - 1000 * (a));
-        line(output, intersect, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+
+        // draw the line
+        line(output, pta, ptb, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
 
 
         /*
