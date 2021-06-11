@@ -272,12 +272,47 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     lanes.push_back(houghLines[leftLaneCandidate]);
     lanes.push_back(houghLines[rightLaneCandidate]);
 
+    // establish a line to cutoff the lane drawings
+    float cutoffrho = (4 * frame.rows) / 7, cutofftheta = 1.5707f, cutoffatan = 1 / atan(cutofftheta);
+    
+    cv::Point cutoffpt1, cutoffpt2;
+    double a = cos(cutofftheta), b = sin(cutofftheta);
+    double x0 = a * cutoffrho, y0 = b * cutoffrho;
+    cutoffpt1.x = cvRound(x0 + 5000 * (-b));
+    cutoffpt1.y = cvRound(y0 + 5000 * (a));
+    cutoffpt2.x = cvRound(x0 - 5000 * (-b));
+    cutoffpt2.y = cvRound(y0 - 5000 * (a));
+    line(output, cutoffpt1, cutoffpt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+
+    cv::Point origin;
+    origin.x = 0;
+    origin.y = 0;
+
 
     // Draw the lines
     // Code for drawing lines on an image pulled from houghlines.cpp in opencv 
     // tutorials and adapted for our purpose
     for (size_t i = 0; i < lanes.size(); i++)
     {
+        float rho = lanes[i][0], theta = lanes[i][1];
+        double a1 = 1 / atan(theta);
+        cv::Point intersect;
+        intersect.x = (rho - cutoffrho) / (cutoffatan - a1);
+        intersect.y = ((cutoffatan * rho) - (a1 * cutoffrho)) / (cutoffatan - a1);
+
+        
+        
+        cv::Point pt1, pt2;
+        double a = cos(theta), b = sin(theta);
+        double x0 = a * rho, y0 = b * rho;
+        pt1.x = cvRound(x0 + 1000 * (-b));
+        pt1.y = cvRound(y0 + 1000 * (a));
+        pt2.x = cvRound(x0 - 1000 * (-b));
+        pt2.y = cvRound(y0 - 1000 * (a));
+        line(output, intersect, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+
+
+        /*
         float rho = lanes[i][0], theta = lanes[i][1];
         cv::Point pt1, pt2;
         double a = cos(theta), b = sin(theta);
@@ -287,17 +322,10 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
         pt2.x = cvRound(x0 - 1000 * (-b));
         pt2.y = cvRound(y0 - 1000 * (a));
         line(output, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        */
     }
 
-    float rho = (4 * frame.rows) / 7, theta = 1.5707f;
-    cv::Point pt1, pt2;
-    double a = cos(theta), b = sin(theta);
-    double x0 = a * rho, y0 = b * rho;
-    pt1.x = cvRound(x0 + 5000 * (-b));
-    pt1.y = cvRound(y0 + 5000 * (a));
-    pt2.x = cvRound(x0 - 5000 * (-b));
-    pt2.y = cvRound(y0 - 5000 * (a));
-    line(output, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+    
 
 
     return output;
