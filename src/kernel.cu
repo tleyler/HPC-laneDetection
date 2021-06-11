@@ -16,10 +16,22 @@ __constant__ int sobel_y[9];
 __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, 
     unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned char inputValue = deviceInput[y * width + x];
+
+
     // if the value is below hystLow, color pixel as black
+    if (inputValue < hystLow) {
+        deviceOutput[y * width + x] = 0;
+    }
 
 
     // if the value is at or above hystHigh, color pixel white
+    if (inputValue >= hystHigh) {
+        deviceOutput[y * width + x] = 255;
+    }
 
 
     // if the value is at or above hystLow, but below hystHigh, color it white
@@ -27,14 +39,18 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow,
     // 3x3 around this pixel have a value above hystHigh. If they do not, but 
     // at least one has a value between the thresholds, check out to 5x5 for
     // a pixel above hystHigh. If you find one, color white. If not, color black
+    if (inputValue < hystHigh && inputValue >= hystLow) {
+        // this is a maybe pixel
+        deviceOutput[y * width + x] = 125;
+    }
 
 }
 
 void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 125;
-    int hystHigh = 200;
+    int hystLow = 50;
+    int hystHigh = 150;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
