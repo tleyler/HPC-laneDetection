@@ -4,6 +4,7 @@
 #include "device_launch_parameters.h"
 #include <iostream>
 #include <vector>
+#define PI 3.14159265
 #define CHANNELS 3
 #define BLOCK_SIZE 16
 #define TILE_SIZE 16
@@ -12,7 +13,87 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+__global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* angles, int width, int height)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    bool isMaximum = false;    
+    unsigned char intensity = deviceInput[y * width + x];
+    float radians = angles[y * width + x];
+    float degrees = radians * 180.0 / PI;
+
+    if ((0 <= degrees && degrees < 22.5) || (157.5 <= degrees && degrees <= 180))
+    {
+        if (intensity > deviceInput[(y + 1) * width + x] &&
+            intensity > deviceInput[(y - 1) * width + x])
+        {
+            isMaximum = true;
+        }
+    }
+    else if (degrees <= 22.5 && degrees < 67.5)
+    {
+        if (intensity > deviceInput[(y - 1) * width + (x + 1)] &&
+            intensity > deviceInput[(y + 1) * width + (x - 1)])
+        {
+            isMaximum = true;
+        }
+    }
+    else if (degrees <= 67.5 && degrees < 112.5)
+    {
+        if (intensity > deviceInput[y * width + (x + 1)] &&
+            intensity > deviceInput[y * width + (x - 1)])
+        {
+            isMaximum = true;
+        }
+    }
+    else if (degrees <= 112.5 && degrees < 157.5)
+    {
+        if (intensity > deviceInput[(y - 1) * width + (x - 1)] &&
+            intensity > deviceInput[(y + 1) * width + (x + 1)])
+        {
+            isMaximum = true;
+        }
+    }
+    
+    if (!isMaximum)
+    {
+        deviceOutput[y * width + x] = 0;
+    }
+}
+
+void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
+{
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Allocate memory on device to store the angles of each edge
+    float* deviceAngles;
+    int anglesBytes = hostInput.rows * hostInput.cols * sizeof(float);
+    cudaMalloc((void**)&deviceAngles, anglesBytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceAngles, hostAngles, anglesBytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel to apply non-maxima suppression
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> >(deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
+
+__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* deviceAngles, int width, int height)
 {
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -37,9 +118,10 @@ __global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOut
          (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
 
     deviceOutput[y * width + x] = static_cast<unsigned char>(sqrt((float)(gx * gx) + (gy * gy)));
+    deviceAngles[y * width + x] = atan((float) (gy / gx));
 }
 
-void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
+void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
 {
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -47,6 +129,11 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
     cudaMalloc((void**)&deviceInput, bytes);
     cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Allocate memory on device to store the angles of each edge
+    float* deviceAngles;
+    int anglesBytes = hostInput.rows * hostInput.cols * sizeof(float);
+    cudaMalloc((void**)&deviceAngles, anglesBytes);
 
     // Copy memory from host to device 
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
@@ -57,14 +144,15 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
 
-    // Call the kernel to convert the image to grayscale
+    // Call the kernel to apply the Sobel filter
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(hostAngles, deviceAngles, anglesBytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
 }
@@ -327,7 +415,10 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
   
     // apply the Sobel operator
     cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
-    sobelCuda(blurred, sobel);
+    float* angles = (float*)malloc(rows * cols * sizeof(float));
+    sobelCuda(blurred, sobel, angles);
+    //imshow("Intensity Gradient Image", sobel);
+    //cv::waitKey();
     // VISUAL DEBUG: compare our implementation with openCV implementation
     /*
     cv::Mat opencv_sobel = cv::Mat(rows, cols, CV_8UC1);
@@ -337,7 +428,12 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     imshow("openCV Intensity Gradient", opencv_sobel);
     cv::waitKey();
     */
-    
+
+    // apply non-maxima suppression
+    cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
+    nonMaximaSuppressionCuda(sobel, nms, angles);
+    imshow("Non-Maxima Suppression Image", nms);
+    cv::waitKey();
 
     return image;
 }
@@ -368,6 +464,7 @@ int main(int argc, char** argv)
 
         // This section is for when using our own GPU accelerated path
         else {
+            
             // create Mat to hold the edges from canny edge detection
             edges = gpuCanny(framesOutput[i]);
             // imshow("Edge Detected Frame", edges);
