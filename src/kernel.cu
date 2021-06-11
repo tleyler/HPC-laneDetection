@@ -13,11 +13,28 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void hysteresisThresholdingKernel() {
+__global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+
+    // if the value is below hystLow, color pixel as black
+
+
+    // if the value is at or above hystHigh, color pixel white
+
+
+    // if the value is at or above hystLow, but below hystHigh, color it white
+    // only if it is connected to another edge pixel. Check if neighbors in 
+    // 3x3 around this pixel have a value above hystHigh. If they do not, but 
+    // at least one has a value between the thresholds, check out to 5x5 for
+    // a pixel above hystHigh. If you find one, color white. If not, color black
 
 }
 
 void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+    // establish the low and high thresholds for the hysteresis thresholding
+    int hystLow = 100;
+    int hystHigh = 175;
+
 
 }
 
