@@ -52,7 +52,7 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh, 
-        hystLow, deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
