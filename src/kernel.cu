@@ -82,6 +82,38 @@ void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaFree(deviceOutput);
 }
 
+void hysteresisCPU(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+    // establish the low and high thresholds for the hysteresis thresholding
+    int hystLow = 50;
+    int hystHigh = 150;
+
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
+        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
+
+
 __global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
