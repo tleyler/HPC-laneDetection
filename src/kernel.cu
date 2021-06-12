@@ -13,6 +13,51 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
+__global__ void softEdgeSearch(int hystHigh, int hystLow,
+    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height, int x, int y) {
+
+    int xPos = x - 1;
+    int yPos = x - 1;
+    int xMax = x + 1;
+    int yMax = y + 1;
+
+    if (x == 0) {
+        xPos = 0;
+    }
+    if (x == width - 1) {
+        xMax = x;
+    }
+    if (y == 0) {
+        yPos = 0;
+    }
+    if (y == height - 1) {
+        yMax = y;
+    }
+
+    for (; xPos <= xMax; xPos++) {
+        for (; yPos <= yMax; yPos++) {
+            if (deviceInput[yPos * width + xPos] == 128) {
+                deviceOutput[yPos * width + xPos] = 255;
+                softEdgeSearch << <9, 1 >> > (hystHigh, hystLow,
+                    deviceInput, deviceOutput, width, height, x, y);
+            }
+        }
+    }
+
+}
+
+__global__ void softEdgeDetection(int hystHigh, int hystLow,
+    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned char inputValue = deviceInput[y * width + x];
+
+    if (inputValue == 255) {
+        softEdgeSearch << <9, 1 >> > (hystHigh, hystLow,
+            deviceInput, deviceOutput, width, height, x, y);
+    }
+}
+
 __global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow, 
     unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
@@ -46,8 +91,8 @@ __global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
 void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 100;
-    int hystHigh = 200;
+    int hystLow = 50;
+    int hystHigh = 100;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -68,6 +113,12 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
+
+    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
+        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    cudaDeviceSynchronize();
+
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
