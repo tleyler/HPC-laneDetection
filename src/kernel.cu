@@ -555,8 +555,6 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     lanes.push_back(houghLines[rightLaneCandidate]);
 
     // Draw the lines
-    // Code for drawing lines on an image pulled from houghlines.cpp in opencv 
-    // tutorials and adapted for our purpose
     for (size_t i = 0; i < lanes.size(); i++)
     {
         // elements of this polar coordinate line
