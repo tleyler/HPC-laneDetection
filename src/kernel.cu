@@ -33,12 +33,11 @@ void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
     // populate queue with original strong edges
     for (int col = 0; col < hostInput.cols; col++) {
         for (int row = 0; row < hostInput.rows; row++) {
-            if (hostInput.at<uchar>(col, row) == 255) {
-                strongEdges.push(std::pair<int, int>(col, row));
-                
+            if (hostInput.at<uchar>(row, col) == 255) {
+                strongEdges.push(std::pair<int, int>(row, col));
             }
             else {
-                hostOutput.at<uchar>(col, row) == 0;
+                hostOutput.at<uchar>(row, col) == 0;
             }
         }
     }
@@ -47,21 +46,21 @@ void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
     int row;
     // bfs from each strong edge
     while (!strongEdges.empty()) {
-        col = strongEdges.front().first;
-        row = strongEdges.front().second;
+        row = strongEdges.front().first;
+        col = strongEdges.front().second;
         strongEdges.pop();
-        hostOutput.at<uchar>(col, row) == 255;
+        hostOutput.at<uchar>(row, col) == 255;
 
         //examine all neighbors
         std::vector<std::pair<int, int>> neighbors;
-        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col - 1, row - 1)); }
-        if (col - 1 > 0) { neighbors.push_back(std::pair<int, int>(col - 1, row)); }
-        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col - 1, row + 1)); }
-        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col, row - 1)); }
-        if (row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col, row + 1)); }
-        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col + 1, row - 1)); }
-        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>(col + 1, row)); }
-        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col + 1, row + 1)); }
+        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col - 1)); }
+        if (col - 1 > 0) { neighbors.push_back(std::pair<int, int>(row, col - 1)); }
+        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col - 1)); }
+        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col)); }
+        if (row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col)); }
+        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col + 1)); }
+        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>(row, col + 1)); }
+        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col + 1)); }
         
         for (int i = 0; i < neighbors.size(); i++) {
             if (hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) == 128) {
