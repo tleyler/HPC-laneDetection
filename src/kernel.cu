@@ -583,16 +583,17 @@ void grayscaleOptimized(unsigned char* deviceInput, unsigned char* deviceOutput,
 
 cv::Mat gpuOptimized(const cv::Mat &frame)
 {
+    cv::imshow("Frame", frame);
+    cv::waitKey(0);
+
     int width = frame.cols;
     int height = frame.rows;
     int cols = frame.cols;
     int rows = frame.rows;
     
-    //int rgb_bytes = frame.rows * frame.step;
-    //int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
     int rgb_bytes = frame.step * frame.rows;
-    //int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
     int bytes = rows * cols * sizeof(unsigned char);
+
     cv::Mat output = cv::Mat(height, width, CV_8UC1);
 
     // Allocate memory on device for input and output
@@ -601,22 +602,14 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&grayscaleInput, rows * cols * sizeof(unsigned char) * CHANNELS);
     cudaMalloc(&grayscaleOutput, bytes);
 
-    cv::imshow("Frame", frame);
-    cv::waitKey(0);
-    //cudaDeviceSynchronize();
-
     // Copy host memory to device
     cudaMemcpy(grayscaleInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
-    /*cv::Mat copyback = cv::Mat(height, width, CV_8UC1);
-    cudaMemcpy(copyback.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
-    cv::imshow("Grayscale", copyback);
-    cv::waitKey(0);*/
 
-    // Set up block configuration for RGB to grayscale
+
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
 
-    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, frame.step, output.step);
+    grayscaleKernel << <gridSize, blockSize >> > (grayscaleInput, grayscaleOutput, width, height, frame.step, output.step);
 
     cv::Mat grayscale = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(grayscale.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
@@ -639,11 +632,11 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows);
+    cudaDeviceSynchronize();
     // GAUSSIAN - copy device output to host
     cv::Mat gaussian = cv::Mat(height, width, CV_8UC1);
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
     cudaMemcpy(gaussian.ptr(), gaussianOutput, bytes, cudaMemcpyDeviceToHost);
-    cudaFree(grayscaleOutput);
     cv::imshow("OPTIMIZED Gaussian", gaussian);
     cv::waitKey(0);
     
@@ -651,36 +644,45 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&sobelInput, bytes);
     cudaMemcpy(sobelInput, gaussianOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* sobelOutput;
-    cudaMalloc((void**)&sobelOutput, bytes);
+    cudaMalloc(&sobelOutput, bytes);
     float* sobelAngles;
-    cudaMalloc((void **) &sobelAngles, rows * cols * sizeof(float));
+    cudaMalloc(&sobelAngles, rows * cols * sizeof(float));
     int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
     int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
-    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
-
-    
+    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));   
     sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows);
     cudaDeviceSynchronize();
+    cv::Mat sobel = cv::Mat(height, width, CV_8UC1);
+    //cudaDeviceSynchronize();
+    cudaMemcpy(sobel.ptr(), sobelOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("OPTIMIZED Sobel", sobel);
+    cv::waitKey(0);
+
+    float* nmsAngles;
+    cudaMalloc(&nmsAngles, rows * cols * sizeof(float));
+    cudaMemcpy(nmsAngles, sobelAngles, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
 
     unsigned char* nmsInput;
     cudaMalloc(&nmsInput, bytes);
     cudaMemcpy(nmsInput, sobelOutput, bytes, cudaMemcpyDeviceToDevice);
 
-    float* nmsAngles;
-    cudaMalloc(&nmsAngles, rows * cols * sizeof(float));
-    cudaMemcpy(nmsAngles, sobelAngles, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
     unsigned char* nmsOutput;
-    cudaMalloc((void**)&nmsOutput, bytes);
+    cudaMalloc(&nmsOutput, bytes);
+    cudaMemcpy(nmsOutput, nmsOutput, bytes, cudaMemcpyDeviceToDevice);
     nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, nmsAngles, cols, rows);
     cudaDeviceSynchronize();
-
+    cv::Mat nms = cv::Mat(height, width, CV_8UC1);
+    //cudaDeviceSynchronize();
+    cudaMemcpy(nms.ptr(), nmsOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("OPTIMIZED nms", nms);
+    cv::waitKey(0);
 
     unsigned char* thresholdInput;
     cudaMalloc(&thresholdInput, bytes);
     cudaMemcpy(thresholdInput, nmsOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* thresholdOutput;
-    cudaMalloc((void**)&thresholdOutput, bytes);
+    cudaMalloc(&thresholdOutput, bytes);
     thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, thresholdOutput, cols, rows);
     cudaDeviceSynchronize();
 
@@ -688,11 +690,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&hysteresisInput, bytes);
     cudaMemcpy(hysteresisInput, thresholdOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* hysteresisOutput;
-    cudaMalloc((void**)&hysteresisOutput, bytes);
+    cudaMalloc(&hysteresisOutput, bytes);
     hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, hysteresisOutput, cols, rows);
     cudaDeviceSynchronize();
-
-    //cudaDeviceSynchronize();
     
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
@@ -900,7 +900,7 @@ int main(int argc, char** argv)
             else
             {
                 edges = gpuOptimized(framesOutput[i]);
-                imshow("Edge Detected Frame", edges);
+                imshow("OPTIMIZED Edge Detected Frame", edges);
                 cv::waitKey(0);
             }
             auto gpuFrameEnd = std::chrono::high_resolution_clock::now();
