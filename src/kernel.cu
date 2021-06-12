@@ -503,10 +503,12 @@ void grayscaleCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 
 
 
-// This function takes in a path to a video file (which are passed in as command line args to main)
-// as the first parameter and outputs each extracted frame to a vector of Mat items which is passed 
-// in as the second parameter to the function. 
-void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& framesOut)
+// This function takes in a path to a video file (which are passed in as command
+//  line args to main) as the first parameter and outputs each extracted frame 
+// to a vector of Mat items which is passed in as the second parameter to the 
+// function. 
+void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& 
+    framesOut)
 {
     try
     {
@@ -516,7 +518,8 @@ void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& frame
             std::cerr << "Unable to open video file!" << std::endl;
             return;
         }
-        for (int frameNum = 0; frameNum < cap.get(cv::CAP_PROP_FRAME_COUNT); frameNum++)
+        for (int frameNum = 0; frameNum < cap.get(cv::CAP_PROP_FRAME_COUNT); 
+            frameNum++)
         {
             cv::Mat frame;
             cap >> frame;
@@ -671,8 +674,10 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     cudaMalloc(&grayscaleOutput, bytes);
     cudaMemcpy(grayscaleInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
-    const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
-    grayscaleKernel << <gridSize, blockSize >> > (grayscaleInput, grayscaleOutput, width, height, frame.step, output.step);
+    const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, 
+        (height + blockSize.y - 1) / blockSize.y, 1);
+    grayscaleKernel << <gridSize, blockSize >> > (grayscaleInput, 
+        grayscaleOutput, width, height, frame.step, output.step);
     cudaDeviceSynchronize();
     if (debug)
     {
@@ -694,7 +699,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
     const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows);
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, 
+        gaussianOutput, cols, rows);
     cudaDeviceSynchronize();
     cudaFree(gaussianInput);
     if (debug)
@@ -721,7 +727,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));   
-    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, 
+        sobelAngles, cols, rows);
     cudaDeviceSynchronize();
     cudaFree(gaussianOutput);
     cudaFree(sobelInput);
@@ -746,8 +753,10 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     cudaMemcpy(nmsOutput, nmsInput, bytes, cudaMemcpyDeviceToDevice);
     float* nmsAngles;
     cudaMalloc(&nmsAngles, rows * cols * sizeof(float));
-    cudaMemcpy(nmsAngles, sobelAngles, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
-    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, nmsAngles, cols, rows);
+    cudaMemcpy(nmsAngles, sobelAngles, rows * cols * sizeof(float), 
+        cudaMemcpyDeviceToDevice);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, 
+        nmsOutput, nmsAngles, cols, rows);
     cudaDeviceSynchronize();
     cudaFree(sobelOutput);
     cudaFree(sobelAngles);
@@ -769,7 +778,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     cudaMemcpy(thresholdInput, nmsOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* thresholdOutput;
     cudaMalloc(&thresholdOutput, bytes);
-    thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, thresholdOutput, cols, rows);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, 
+        thresholdOutput, cols, rows);
     cudaDeviceSynchronize();
     cudaFree(nmsOutput);
     cudaFree(nmsAngles);
@@ -792,14 +802,16 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     unsigned char* hysteresisOutput;
     cudaMalloc(&hysteresisOutput, bytes);
     cudaMemcpy(hysteresisOutput, hysteresisInput, bytes, cudaMemcpyDeviceToDevice);
-    hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, hysteresisOutput, cols, rows);
+    hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, 
+        hysteresisOutput, cols, rows);
     cudaDeviceSynchronize();
     cudaFree(thresholdOutput);
     cudaFree(hysteresisInput);
     if (debug)
     {
         cv::Mat hysteresis = cv::Mat(height, width, CV_8UC1);
-        cudaMemcpy(hysteresis.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
+        cudaMemcpy(hysteresis.ptr(), hysteresisOutput, bytes, 
+            cudaMemcpyDeviceToHost);
         cv::imshow("OPTIMIZED hysteresis", hysteresis);
         cv::waitKey(0);
     }
@@ -953,7 +965,8 @@ int main(int argc, char** argv)
             auto opencvFrameStart = std::chrono::high_resolution_clock::now();
             edges = opencvCanny(framesOutput[i]);
             auto opencvFrameEnd = std::chrono::high_resolution_clock::now();
-            auto opencvFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(opencvFrameEnd - opencvFrameStart);
+            auto opencvFrameMs = std::chrono::duration_cast
+                <std::chrono::milliseconds>(opencvFrameEnd - opencvFrameStart);
             opencvTime += opencvFrameMs;
         }
 
@@ -970,7 +983,8 @@ int main(int argc, char** argv)
                 edges = gpuOptimized(framesOutput[i], debug);
             }
             auto gpuFrameEnd = std::chrono::high_resolution_clock::now();
-            auto gpuFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(gpuFrameEnd - gpuFrameStart);
+            auto gpuFrameMs = std::chrono::duration_cast
+                <std::chrono::milliseconds>(gpuFrameEnd - gpuFrameStart);
             gpuTime += gpuFrameMs;
         }
 
@@ -979,7 +993,8 @@ int main(int argc, char** argv)
         auto houghStart = std::chrono::high_resolution_clock::now();
         houghTransform(edges, houghLines);
         auto houghEnd = std::chrono::high_resolution_clock::now();
-        houghTime += std::chrono::duration_cast<std::chrono::milliseconds>(houghEnd - houghStart);
+        houghTime += std::chrono::duration_cast<std::chrono::milliseconds>
+            (houghEnd - houghStart);
         
         if (demo)
         {
@@ -991,18 +1006,24 @@ int main(int argc, char** argv)
     // end the timing for total run time including hough (for this frame)
     auto totalEnd = std::chrono::high_resolution_clock::now();
     //std::chrono::duration<float> totalTime = totalEnd - totalStart;
-    auto totalMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart); 
-    std::cout << "Total execution time: " << totalMilliseconds.count() << " milliseconds" << std::endl;
+    auto totalMilliseconds = std::chrono::duration_cast
+        <std::chrono::milliseconds>(totalEnd - totalStart); 
+    std::cout << "Total execution time: " << totalMilliseconds.count() << 
+        " milliseconds" << std::endl;
 
     if (gpuAccelerated)
     {
-        std::cout << "GPU Canny execution time (CUDA Kernels): " << gpuTime.count() << " milliseconds" << std::endl;
-        std::cout << "CPU Hough transform execution time: " << houghTime.count() << "milliseconds" << std::endl;
+        std::cout << "GPU Canny execution time (CUDA Kernels): " << 
+            gpuTime.count() << " milliseconds" << std::endl;
+        std::cout << "CPU Hough transform execution time: " << houghTime.count() 
+            << "milliseconds" << std::endl;
     }
     if (!gpuAccelerated)
     {
-        std::cout << "CPU openCV::Canny() execution time: " << opencvTime.count() << " milliseconds" << std::endl;
-        std::cout << "CPU Hough transform execution time: " << houghTime.count() << "milliseconds" << std::endl;
+        std::cout << "CPU openCV::Canny() execution time: " << 
+            opencvTime.count() << " milliseconds" << std::endl;
+        std::cout << "CPU Hough transform execution time: " << houghTime.count() 
+            << "milliseconds" << std::endl;
     }
     cv::destroyAllWindows();
     return 0;
