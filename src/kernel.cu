@@ -4,6 +4,7 @@
 #include "device_launch_parameters.h"
 #include <iostream>
 #include <vector>
+#include <queue>
 #define PI 3.14159265
 #define CHANNELS 3
 #define BLOCK_SIZE 16
@@ -81,6 +82,54 @@ void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
 }
+
+void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+    std::queue<std::pair<int, int>> strongEdges;
+
+    // populate queue with original strong edges
+    for (int col = 0; col < hostInput.cols; col++) {
+        for (int row = 0; row < hostInput.rows; row++) {
+            if (hostInput.at<uchar>(row, col) == 255) {
+                strongEdges.push(std::pair<int, int>(row, col));
+            }
+            else {
+                hostOutput.at<uchar>(row, col) = 0;
+            }
+        }
+    }
+
+    int col;
+    int row;
+    // bfs from each strong edge
+    while (!strongEdges.empty()) {
+        row = strongEdges.front().first;
+        col = strongEdges.front().second;
+        strongEdges.pop();
+        hostOutput.at<uchar>(row, col) = 255;
+
+        //examine all neighbors
+        std::vector<std::pair<int, int>> neighbors;
+        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col - 1)); }
+        if (col - 1 > 0) { neighbors.push_back(std::pair<int, int>(row, col - 1)); }
+        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col - 1)); }
+        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col)); }
+        if (row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col)); }
+        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col + 1)); }
+        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>(row, col + 1)); }
+        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col + 1)); }
+
+        for (int i = 0; i < neighbors.size(); i++) {
+            if (hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) == 128) {
+                strongEdges.push(std::pair<int, int>(neighbors[i].first, neighbors[i].second));
+                hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) = 255;
+            }
+        }
+
+    }
+
+}
+
 
 __global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
