@@ -606,8 +606,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     int cols = frame.cols;
     int rows = frame.rows;
     
+    
     int rgb_bytes = frame.step * frame.rows;
-    int bytes = rows * cols * sizeof(unsigned char);
+    int bytes = rows * cols * sizeof(unsigned char);;
 
     cv::Mat output = cv::Mat(height, width, CV_8UC1);
 
@@ -661,6 +662,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows, deviceGaussian);
     cudaDeviceSynchronize();
+    cudaFree(gaussianInput);
     // GAUSSIAN - copy device output to host
     cv::Mat gaussian = cv::Mat(height, width, CV_8UC1);
     //cudaDeviceSynchronize();
@@ -690,6 +692,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     
     sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows, d_sobel_x, d_sobel_y);
     cudaDeviceSynchronize();
+    cudaFree(gaussianOutput);
+    cudaFree(sobelInput);
     cv::Mat sobel = cv::Mat(height, width, CV_8UC1);
     //cudaDeviceSynchronize();
     cudaMemcpy(sobel.ptr(), sobelOutput, bytes, cudaMemcpyDeviceToHost);
@@ -709,6 +713,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMemcpy(nmsOutput, nmsInput, bytes, cudaMemcpyDeviceToDevice);
     nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, nmsAngles, cols, rows);
     cudaDeviceSynchronize();
+    cudaFree(sobelOutput);
+    cudaFree(sobelAngles);
+    cudaFree(nmsInput);
     cv::Mat nms = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(nms.ptr(), nmsOutput, bytes, cudaMemcpyDeviceToHost);
     cv::imshow("OPTIMIZED nms", nms);
@@ -721,6 +728,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&thresholdOutput, bytes);
     thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, thresholdOutput, cols, rows);
     cudaDeviceSynchronize();
+    cudaFree(nmsOutput);
+    cudaFree(nmsAngles);
+    cudaFree(thresholdInput);
     cv::Mat threshold = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(threshold.ptr(), thresholdOutput, bytes, cudaMemcpyDeviceToHost);
     cv::imshow("OPTIMIZED threshold", threshold);
@@ -735,6 +745,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMemcpy(hysteresisOutput, hysteresisInput, bytes, cudaMemcpyDeviceToDevice);
     hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, hysteresisOutput, cols, rows);
     cudaDeviceSynchronize();
+    cudaFree(thresholdOutput);
+    cudaFree(hysteresisInput);
     cv::Mat hysteresis = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(hysteresis.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
     cv::imshow("OPTIMIZED hysteresis", hysteresis);
@@ -742,17 +754,12 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
-    cudaFree(gaussianInput);
-    cudaFree(gaussianOutput);
-    cudaFree(sobelInput);
-    cudaFree(sobelOutput);
-    cudaFree(sobelAngles);
-    cudaFree(nmsInput);
-    cudaFree(nmsOutput);
-    cudaFree(nmsAngles);
-    cudaFree(thresholdInput);
-    cudaFree(thresholdOutput); 
-    cudaFree(hysteresisInput);
+    
+    
+    
+    
+    
+    
     cudaFree(hysteresisOutput);
     cudaFree(deviceGaussian);
     cudaFree(d_sobel_x);
