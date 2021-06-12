@@ -26,7 +26,7 @@ __global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
 
 }
 
-void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
+void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     std::queue<std::pair<int, int>> strongEdges;
 
@@ -584,7 +584,7 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     cv::Mat threshold = cv::Mat(rows, cols, CV_8UC1);
     thresholdingCudaCPU(nms, threshold);
     cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
-    hysteresisThresholdingCuda(threshold, hst);
+    hysteresisCPU(threshold, hst);
 
     imshow("Hysteresis Thresholded Image", hst);
     cv::waitKey();
