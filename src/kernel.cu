@@ -385,7 +385,8 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 }
 
 
-__global__ void grayscaleKernel(unsigned char* rgbInput, unsigned char* grayOutput, int width, int height, int colorWidthStep, int grayWidthStep)
+__global__ void grayscaleKernel(unsigned char* rgbInput, unsigned char* grayOutput, 
+                                int width, int height, int colorWidthStep, int grayWidthStep)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -569,13 +570,80 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
         //std::cerr << "Theta = " << theta << std::endl;
 
     }
-
-    
-
-
     return output;
 }
 
+void grayscaleOptimized(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+{
+    const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
+    const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
+    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
+}
+
+cv::Mat gpuOptimized(const cv::Mat &frame)
+{
+    
+    int width = frame.cols;
+    int height = frame.rows;
+    int cols = frame.cols;
+    int rows = frame.rows;
+    cv::Mat output = cv::Mat(height, width, CV_8UC1);
+    int rgb_bytes = frame.rows * frame.step;
+
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* grayscaleOutput;
+    cudaMalloc((void**) &deviceInput, rgb_bytes);
+    cudaMalloc((void**) &grayscaleOutput, frame.rows * frame.cols * sizeof(unsigned char));
+
+    // Copy host memory to device
+    cudaMemcpy(deviceInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
+
+    // Set up block configuration for RGB to grayscale
+    const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
+    const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
+    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, frame.step, output.step);
+
+
+    int bytes = rows * cols * sizeof(unsigned char);
+    unsigned char* gaussianOutput;
+    cudaMalloc((void**)&gaussianOutput, bytes);
+    const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (grayscaleOutput, gaussianOutput, cols, rows);
+
+    unsigned char* sobelOutput;
+    cudaMalloc((void**)&sobelOutput, bytes);
+    float* angles;
+    cudaMalloc((void **) &angles, rows * cols * sizeof(float));
+    sobelKernel << <numBlocks, threadsPerBlock >> > (gaussianOutput, sobelOutput, angles, cols, rows);
+
+    unsigned char* nmsOutput;
+    cudaMalloc((void**)&nmsOutput, bytes);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (sobelOutput, nmsOutput, angles, cols, rows);
+
+    unsigned char* thresholdOutput;
+    cudaMalloc((void**)&thresholdOutput, bytes);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (nmsOutput, thresholdOutput, cols, rows);
+
+    unsigned char* hysteresisOutput;
+    cudaMalloc((void**)&hysteresisOutput, bytes);
+    hysteresisKernel << <numBlocks, threadsPerBlock >> > (thresholdOutput, hysteresisOutput, cols, rows);
+
+    cudaDeviceSynchronize();
+    cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
+
+    cudaFree(deviceInput);
+    cudaFree(grayscaleOutput);
+    cudaFree(gaussianOutput);
+    cudaFree(sobelOutput);
+    cudaFree(angles);
+    cudaFree(nmsOutput);
+    cudaFree(thresholdOutput); 
+    cudaFree(hysteresisOutput);
+
+    return output;
+}
 
 cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
     cv::Mat image = frame.clone();
@@ -733,7 +801,16 @@ int main(int argc, char** argv)
         else {
             // create Mat to hold the edges from canny edge detection
             auto gpuFrameStart = std::chrono::high_resolution_clock::now();
-            edges = gpuCanny(framesOutput[i], demo);
+            if (demo == true)
+            {
+                edges = gpuCanny(framesOutput[i], demo);
+            }
+            else
+            {
+                edges = gpuOptimized(framesOutput[i]);
+                imshow("Edge Detected Frame", edges);
+                cv::waitKey(0);
+            }
             auto gpuFrameEnd = std::chrono::high_resolution_clock::now();
             auto gpuFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(gpuFrameEnd - gpuFrameStart);
             gpuTime += gpuFrameMs;
