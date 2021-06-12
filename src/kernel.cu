@@ -26,39 +26,52 @@ __global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
 
 }
 
-void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
-
-    // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 150;
-    int hystHigh = 200;
-
-    // Allocate memory on device for input and output
-    unsigned char* deviceInput;
-    unsigned char* deviceOutput;
-    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
-    cudaMalloc((void**)&deviceInput, bytes);
-    cudaMalloc((void**)&deviceOutput, bytes);
-
-    // Copy memory from host to device 
-    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
-
-    // Call the kernel
-    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
-        ceil(hostInput.rows / BLOCK_SIZE), 1);
-    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
-        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
+void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     std::queue<std::pair<int, int>> strongEdges;
 
+    // populate queue with original strong edges
+    for (int col = 0; col < hostInput.cols; col++) {
+        for (int row = 0; row < hostInput.rows; row++) {
+            if (hostInput.at<uchar>(col, row) == 255) {
+                strongEdges.push(std::pair<int, int>(col, row));
+                
+            }
+            else {
+                hostOutput.at<uchar>(col, row) == 0;
+            }
+        }
+    }
 
+    int col;
+    int row;
+    // bfs from each strong edge
+    while (!strongEdges.empty()) {
+        col = strongEdges.front().first;
+        row = strongEdges.front().second;
+        strongEdges.pop();
+        hostOutput.at<uchar>(col, row) == 255;
 
-    // Copy memory back to host after kernel is complete
-    cudaDeviceSynchronize();
-    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
-    cudaFree(deviceInput);
-    cudaFree(deviceOutput);
+        //examine all neighbors
+        std::vector<std::pair<int, int>> neighbors;
+        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col - 1, row - 1)); }
+        if (col - 1 > 0) { neighbors.push_back(std::pair<int, int>(col - 1, row)); }
+        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col - 1, row + 1)); }
+        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col, row - 1)); }
+        if (row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col, row + 1)); }
+        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(col + 1, row - 1)); }
+        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>(col + 1, row)); }
+        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(col + 1, row + 1)); }
+        
+        for (int i = 0; i < neighbors.size(); i++) {
+            if (hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) == 128) {
+                strongEdges.push(std::pair<int, int>(neighbors[i].first, neighbors[i].second));
+                hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) = 255;
+            }
+        }
+    
+    }
+
 }
 
 
