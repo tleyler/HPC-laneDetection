@@ -742,7 +742,7 @@ int main(int argc, char** argv)
         auto houghStart = std::chrono::high_resolution_clock::now();
         houghTransform(edges, houghLines);
         auto houghEnd = std::chrono::high_resolution_clock::now();
-        houghTime = std::chrono::duration_cast<std::chrono::milliseconds>(houghEnd - houghStart);
+        houghTime += std::chrono::duration_cast<std::chrono::milliseconds>(houghEnd - houghStart);
         
         if (demo)
         {
