@@ -37,7 +37,7 @@ void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
                 strongEdges.push(std::pair<int, int>(row, col));
             }
             else {
-                hostOutput.at<uchar>(row, col) == 0;
+                hostOutput.at<uchar>(row, col) = 0;
             }
         }
     }
@@ -49,7 +49,7 @@ void hysteresisThresholdingCuda(cv::Mat& hostInput, cv::Mat& hostOutput) {
         row = strongEdges.front().first;
         col = strongEdges.front().second;
         strongEdges.pop();
-        hostOutput.at<uchar>(row, col) == 255;
+        hostOutput.at<uchar>(row, col) = 255;
 
         //examine all neighbors
         std::vector<std::pair<int, int>> neighbors;
@@ -102,11 +102,11 @@ __global__ void thresholdingKernel(int hystHigh, int hystLow,
     }
 }
 
-void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+void thresholdingCudaCPU(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 150;
-    int hystHigh = 200;
+    int hystLow = 50;
+    int hystHigh = 150;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -577,12 +577,12 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // apply non-maxima suppression
     cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
     nonMaximaSuppressionCuda(sobel, nms, angles);
-    imshow("Non-Maxima Suppression Image", nms);
+    //imshow("Non-Maxima Suppression Image", nms);
     
 
     // perform hysteresis thresholding
     cv::Mat threshold = cv::Mat(rows, cols, CV_8UC1);
-    thresholdingCuda(nms, threshold);
+    thresholdingCudaCPU(nms, threshold);
     cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
     hysteresisThresholdingCuda(threshold, hst);
 
