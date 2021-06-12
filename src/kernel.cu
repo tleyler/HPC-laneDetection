@@ -591,18 +591,19 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     //int rgb_bytes = frame.rows * frame.step;
     //int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
     int rgb_bytes = frame.step * frame.rows;
+    //int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
     int bytes = rows * cols * sizeof(unsigned char);
     cv::Mat output = cv::Mat(height, width, CV_8UC1);
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
     unsigned char* grayscaleOutput;
-    cudaMalloc<unsigned char>(&deviceInput, rgb_bytes);
-    cudaMalloc<unsigned char>(&grayscaleOutput, output.step * output.rows);
+    cudaMalloc(&deviceInput, rows * cols * sizeof(unsigned char) * CHANNELS);
+    cudaMalloc(&grayscaleOutput, bytes);
 
     cv::imshow("Frame", frame);
     cv::waitKey(0);
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
 
     // Copy host memory to device
     cudaMemcpy(deviceInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
@@ -614,25 +615,40 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     // Set up block configuration for RGB to grayscale
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
+
     grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, frame.step, output.step);
+
     cv::Mat grayscale = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(grayscale.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
+    
     cv::imshow("OPTIMIZED Grayscale", grayscale);
     cv::waitKey(0);
     cudaDeviceSynchronize();
+
+    unsigned char* gaussianInput;
+    cudaMalloc(&gaussianInput, bytes);
+    cudaMemcpy(gaussianInput, grayscaleOutput, bytes, cudaMemcpyDeviceToDevice);
     
+    // GAUSSIAN - allocate memory
     unsigned char* gaussianOutput;
-    cudaMalloc((void**)&gaussianOutput, bytes);
-    const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
-    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    cudaMalloc(&gaussianOutput, bytes);
+
+    // GAUSSIAN - copy kernel values to global memory
     int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (grayscaleOutput, gaussianOutput, cols, rows);
+
+    // GAUSSIAN -  set up kernel call configuration
+    const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows);
+    // GAUSSIAN - copy device output to host
     cv::Mat gaussian = cv::Mat(height, width, CV_8UC1);
+    cudaDeviceSynchronize();
     cudaMemcpy(gaussian.ptr(), gaussianOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(grayscaleOutput);
     cv::imshow("OPTIMIZED Gaussian", gaussian);
     cv::waitKey(0);
-    cudaDeviceSynchronize();
+    
 
     unsigned char* sobelOutput;
     cudaMalloc((void**)&sobelOutput, bytes);
@@ -642,22 +658,36 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
-    sobelKernel << <numBlocks, threadsPerBlock >> > (gaussianOutput, sobelOutput, angles, cols, rows);
+
+    unsigned char* sobelInput;
+    cudaMalloc(&sobelInput, bytes);
+    cudaMemcpy(sobelInput, gaussianOutput, bytes, cudaMemcpyDeviceToDevice);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, angles, cols, rows);
     cudaDeviceSynchronize();
 
+    unsigned char* nmsInput;
+    cudaMalloc(&nmsInput, bytes);
+    cudaMemcpy(nmsInput, sobelOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* nmsOutput;
     cudaMalloc((void**)&nmsOutput, bytes);
-    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (sobelOutput, nmsOutput, angles, cols, rows);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, angles, cols, rows);
     cudaDeviceSynchronize();
 
+
+    unsigned char* thresholdInput;
+    cudaMalloc(&thresholdInput, bytes);
+    cudaMemcpy(thresholdInput, nmsOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* thresholdOutput;
     cudaMalloc((void**)&thresholdOutput, bytes);
-    thresholdingKernel << <numBlocks, threadsPerBlock >> > (nmsOutput, thresholdOutput, cols, rows);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, thresholdOutput, cols, rows);
     cudaDeviceSynchronize();
 
+    unsigned char* hysteresisInput;
+    cudaMalloc(&hysteresisInput, bytes);
+    cudaMemcpy(hysteresisInput, thresholdOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* hysteresisOutput;
     cudaMalloc((void**)&hysteresisOutput, bytes);
-    hysteresisKernel << <numBlocks, threadsPerBlock >> > (thresholdOutput, hysteresisOutput, cols, rows);
+    hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, hysteresisOutput, cols, rows);
     cudaDeviceSynchronize();
 
     //cudaDeviceSynchronize();
@@ -665,7 +695,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
     cudaFree(deviceInput);
-    cudaFree(grayscaleOutput);
+    
     cudaFree(gaussianOutput);
     cudaFree(sobelOutput);
     cudaFree(angles);
@@ -673,7 +703,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaFree(thresholdOutput); 
     cudaFree(hysteresisOutput);
 
-    return output;
+    return output;   
 }
 
 cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
@@ -755,6 +785,29 @@ cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
     return hysteresis;
 }
 
+std::string type2str(int type) {
+    std::string r;
+
+    uchar depth = type & CV_MAT_DEPTH_MASK;
+    uchar chans = 1 + (type >> CV_CN_SHIFT);
+
+    switch (depth) {
+    case CV_8U:  r = "8U"; break;
+    case CV_8S:  r = "8S"; break;
+    case CV_16U: r = "16U"; break;
+    case CV_16S: r = "16S"; break;
+    case CV_32S: r = "32S"; break;
+    case CV_32F: r = "32F"; break;
+    case CV_64F: r = "64F"; break;
+    default:     r = "User"; break;
+    }
+
+    r += "C";
+    r += (chans + '0');
+
+    return r;
+}
+
 // COMMAND LINE ARGUMENTS
 // argv[0] = program name
 // argv[1] = file path to video file
@@ -815,6 +868,8 @@ int main(int argc, char** argv)
     {
         cv::Mat edges;
 
+        std::string type = type2str(framesOutput[i].type());
+        int size = framesOutput.size();
         // This section is for when using the opencvCanny() implementation 
         // path (non-GPU accelarated)
         if (!gpuAccelerated) {
