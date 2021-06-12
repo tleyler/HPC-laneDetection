@@ -573,22 +573,24 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     return output;
 }
 
+/*
 void grayscaleOptimized(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
 {
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
     grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
-}
+}*/
 
 cv::Mat gpuOptimized(const cv::Mat &frame)
 {
-    
     int width = frame.cols;
     int height = frame.rows;
     int cols = frame.cols;
     int rows = frame.rows;
-    cv::Mat output = cv::Mat(height, width, CV_8UC1);
-    int rgb_bytes = frame.rows * frame.step;
+    
+    //int rgb_bytes = frame.rows * frame.step;
+    int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
+    int bytes = rows * cols * sizeof(unsigned char);
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -602,35 +604,40 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     // Set up block configuration for RGB to grayscale
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
-    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, frame.step, output.step);
-
-
-    int bytes = rows * cols * sizeof(unsigned char);
+    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, rgb_bytes, bytes);
+    cudaDeviceSynchronize();
+    
     unsigned char* gaussianOutput;
     cudaMalloc((void**)&gaussianOutput, bytes);
     const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     gaussianKernel << < numBlocks, threadsPerBlock >> > (grayscaleOutput, gaussianOutput, cols, rows);
+    cudaDeviceSynchronize();
 
     unsigned char* sobelOutput;
     cudaMalloc((void**)&sobelOutput, bytes);
     float* angles;
     cudaMalloc((void **) &angles, rows * cols * sizeof(float));
     sobelKernel << <numBlocks, threadsPerBlock >> > (gaussianOutput, sobelOutput, angles, cols, rows);
+    cudaDeviceSynchronize();
 
     unsigned char* nmsOutput;
     cudaMalloc((void**)&nmsOutput, bytes);
     nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (sobelOutput, nmsOutput, angles, cols, rows);
+    cudaDeviceSynchronize();
 
     unsigned char* thresholdOutput;
     cudaMalloc((void**)&thresholdOutput, bytes);
     thresholdingKernel << <numBlocks, threadsPerBlock >> > (nmsOutput, thresholdOutput, cols, rows);
+    cudaDeviceSynchronize();
 
     unsigned char* hysteresisOutput;
     cudaMalloc((void**)&hysteresisOutput, bytes);
     hysteresisKernel << <numBlocks, threadsPerBlock >> > (thresholdOutput, hysteresisOutput, cols, rows);
-
     cudaDeviceSynchronize();
+
+    //cudaDeviceSynchronize();
+    cv::Mat output = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
     cudaFree(deviceInput);
