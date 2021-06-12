@@ -16,9 +16,9 @@
 #define HYST_LOW 75
 #define HYST_HIGH 120
 
-__constant__ int gaussian[9];
-__constant__ int sobel_x[9];
-__constant__ int sobel_y[9];
+//__constant__ int gaussian[9];
+//__constant__ int sobel_x[9];
+//__constant__ int sobel_y[9];
 
 __global__ void hysteresisKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
 {
@@ -267,7 +267,7 @@ void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, flo
     cudaFree(deviceAngles);
 }
 
-__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* deviceAngles, int width, int height)
+__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* deviceAngles, int width, int height, int* sobel_x, int* sobel_y)
 {
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -315,13 +315,21 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
     // Populate the global memory symbols with Sobel kernel values
     int h_sobel_x[9] = {1, 0, -1, 2, 0, -2, 1, 0, -1};
     int h_sobel_y[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
-    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
+
+    int* d_sobel_x;
+    cudaMalloc(&d_sobel_x, 9 * sizeof(int));
+    cudaMemcpy(d_sobel_x, h_sobel_x, 9 * sizeof(int), cudaMemcpyHostToDevice);
+
+    int* d_sobel_y;
+    cudaMalloc(&d_sobel_y, 9 * sizeof(int));
+    cudaMemcpy(d_sobel_y, h_sobel_y, 9 * sizeof(int), cudaMemcpyHostToDevice);
+    //cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
+    //cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
 
     // Call the kernel to apply the Sobel filter
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows, d_sobel_x, d_sobel_y);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -330,10 +338,12 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
     cudaFree(deviceAngles);
+    cudaFree(d_sobel_x);
+    cudaFree(d_sobel_y);
 }
 
 
-__global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+__global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height, int* gaussian)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -369,13 +379,18 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Populate the global memory symbol with Gaussian kernel values
-    int hostGaussian[9] = {1, 2, 1, 2, 4, 2, 1, 2, 1};
-    cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
+    //int hostGaussian[9] = {1, 2, 1, 2, 4, 2, 1, 2, 1};
+    //cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
+
+    int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
+    int* deviceGaussian;
+    cudaMalloc(&deviceGaussian, 9 * sizeof(int));
+    cudaMemcpy(deviceGaussian, hostGaussian, 9 * sizeof(int), cudaMemcpyHostToDevice);
 
     // Call the kernel to convert the image to grayscale
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows); 
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, deviceGaussian);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -599,7 +614,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     // Allocate memory on device for input and output
     unsigned char* grayscaleInput;
     unsigned char* grayscaleOutput;
-    cudaMalloc(&grayscaleInput, rows * cols * sizeof(unsigned char) * CHANNELS);
+    //cudaMalloc(&grayscaleInput, rows * cols * sizeof(unsigned char) * CHANNELS);
+    cudaMalloc(&grayscaleInput, rgb_bytes);
     cudaMalloc(&grayscaleOutput, bytes);
 
     // Copy host memory to device
@@ -610,13 +626,12 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
 
     grayscaleKernel << <gridSize, blockSize >> > (grayscaleInput, grayscaleOutput, width, height, frame.step, output.step);
-
+    cudaDeviceSynchronize();
     cv::Mat grayscale = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(grayscale.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
-    
     cv::imshow("OPTIMIZED Grayscale", grayscale);
     cv::waitKey(0);
-    cudaDeviceSynchronize();
+    
 
     unsigned char* gaussianInput;
     cudaMalloc(&gaussianInput, bytes);
@@ -624,14 +639,27 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     unsigned char* gaussianOutput;
     cudaMalloc(&gaussianOutput, bytes);
 
-    // GAUSSIAN - copy kernel values to global memory
+
+    /*
     int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
 
-    // GAUSSIAN -  set up kernel call configuration
+    int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
+    int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
+    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
+    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
+    */
+
+    int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
+    int* deviceGaussian;
+    cudaMalloc(&deviceGaussian, 9 * sizeof(int));
+    cudaMemcpy(deviceGaussian, hostGaussian, 9 * sizeof(int), cudaMemcpyHostToDevice);
+    //cudaMemcpyFromSymbol(gaussian_new, gaussian, 9 * sizeof(int));
+    //cudaMemcpyToSymbol(gaussian, gaussian_new, 9 * sizeof(int));
+
     const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows);
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows, deviceGaussian);
     cudaDeviceSynchronize();
     // GAUSSIAN - copy device output to host
     cv::Mat gaussian = cv::Mat(height, width, CV_8UC1);
@@ -647,11 +675,20 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&sobelOutput, bytes);
     float* sobelAngles;
     cudaMalloc(&sobelAngles, rows * cols * sizeof(float));
+
+    // Populate the global memory symbols with Sobel kernel values
     int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
     int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
-    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
-    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));   
-    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows);
+
+    int* d_sobel_x;
+    cudaMalloc(&d_sobel_x, 9 * sizeof(int));
+    cudaMemcpy(d_sobel_x, h_sobel_x, 9 * sizeof(int), cudaMemcpyHostToDevice);
+
+    int* d_sobel_y;
+    cudaMalloc(&d_sobel_y, 9 * sizeof(int));
+    cudaMemcpy(d_sobel_y, h_sobel_y, 9 * sizeof(int), cudaMemcpyHostToDevice);
+    
+    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows, d_sobel_x, d_sobel_y);
     cudaDeviceSynchronize();
     cv::Mat sobel = cv::Mat(height, width, CV_8UC1);
     //cudaDeviceSynchronize();
@@ -717,6 +754,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaFree(thresholdOutput); 
     cudaFree(hysteresisInput);
     cudaFree(hysteresisOutput);
+    cudaFree(deviceGaussian);
+    cudaFree(d_sobel_x);
+    cudaFree(d_sobel_y);
 
     return output;   
 }
@@ -869,6 +909,17 @@ int main(int argc, char** argv)
 
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
+
+    /*
+    // GAUSSIAN - copy kernel values to global memory
+    int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
+    cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
+
+    int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
+    int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
+    cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
+    cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
+    */
 
     auto totalStart = std::chrono::high_resolution_clock::now();
     //std::chrono::high_resolution_clock::duration gpuTime = std::chrono::high_resolution_clock::rep(std::chrono::duration_values::zero);
