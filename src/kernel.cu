@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <queue>
+#include <chrono>
 #define PI 3.14159265
 #define CHANNELS 3
 #define BLOCK_SIZE 16
@@ -12,8 +13,8 @@
 #define STRONG_EDGE 255
 #define WEAK_EDGE 125
 #define NON_EDGE 0
-#define HYST_LOW 50
-#define HYST_HIGH 150
+#define HYST_LOW 75
+#define HYST_HIGH 120
 
 __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
@@ -127,7 +128,6 @@ void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
         }
 
     }
-
 }
 
 
@@ -160,11 +160,6 @@ __global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* de
 }
 
 void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
-
-    // establish the low and high thresholds for the hysteresis thresholding
-    //int hystLow = 50;
-    //int hystHigh = 100;
-
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
     unsigned char* deviceOutput;
@@ -450,10 +445,8 @@ void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& frame
             cv::Mat frame;
             cap >> frame;
             framesOut.push_back(frame);
-            // VISUAL DEBUG: display each frame on screen
-            // cv::imshow("Extracted Frame", frame);
-            // waitKey(0);
         }
+        cap.release();
     }
     catch (cv::Exception& e)
     {
@@ -582,7 +575,7 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 }
 
 
-cv::Mat gpuCanny(const cv::Mat &frame) {
+cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
     cv::Mat image = frame.clone();
     const int rows = image.rows;
     const int cols = image.cols;
@@ -646,8 +639,11 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // perform hysteresis thresholding - stage 2
     cv::Mat hysteresis = cv::Mat(rows, cols, CV_8UC1);
     hysteresisCuda(threshold, hysteresis);
-    imshow("Hysteresis Thresholded Image - Stage 2", hysteresis);
-    cv::waitKey();
+    if (demo)
+    {
+        imshow("Hysteresis Thresholded Image - Stage 2", hysteresis);
+        cv::waitKey();
+    }
     
     /*
     cv::Mat canny = cv::Mat(rows, cols, CV_8UC1);
@@ -661,14 +657,53 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
 // COMMAND LINE ARGUMENTS
 // argv[0] = program name
 // argv[1] = file path to video file
+// argv[2] = expected inputs "CPU" or "GPU", determines which implementations to run
+// argv[3] = expected inputs "demo" will tell the program to show output
 int main(int argc, char** argv)
 {
+    // set run configurations from command line arguments
     std::string videoFilePath = argv[1];
+    bool gpuAccelerated;
+    std::cout << argv[2] << std::endl;
+    std::string config = argv[2];
+    if (config == "GPU")
+    {
+        std::cout << "=== GPU IMPLEMENTATION === " << std::endl;
+        gpuAccelerated = true;
+    }
+    else if (config == "CPU")
+    {
+        std::cout << "=== CPU IMPLEMENTATION === " << std::endl;
+        gpuAccelerated = false;
+    }
+    else
+    {
+        std::cerr << "Invalid command line arguments!1" << std::endl;
+        return;
+    }
+
+    bool demo = false;
+    if (argc < 3)
+    {
+        std::string demo_arg = argv[3];
+        if (demo_arg == "demo")
+        {
+            demo = true;
+        }
+        else
+        {
+            std::cerr << "Invalid command line arguments!2" << std::endl;
+            return;
+        }
+    }
+    
+
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
-    bool gpuAccelerated = true;
-
+    auto totalStart = std::chrono::high_resolution_clock::now();
+    std::chrono::high_resolution_clock::duration gpuTime;
+    std::chrono::high_resolution_clock::duration houghTime;
     for (int i = 0; i < framesOutput.size(); i++)
     {
         cv::Mat edges;
@@ -677,6 +712,7 @@ int main(int argc, char** argv)
         // path (non-GPU accelarated)
         if (!gpuAccelerated) {
             // create Mat to hold the edges from canny edge detection
+            
             edges = opencvCanny(framesOutput[i]);
             //imshow("Edge Detected Frame", edges);
             //cv::waitKey(0);
@@ -684,19 +720,41 @@ int main(int argc, char** argv)
 
         // This section is for when using our own GPU accelerated path
         else {
-            
             // create Mat to hold the edges from canny edge detection
-            
-            edges = gpuCanny(framesOutput[i]);
+            auto gpuFrameStart = std::chrono::high_resolution_clock::now();
+            edges = gpuCanny(framesOutput[i], demo);
+            auto gpuFrameEnd = std::chrono::high_resolution_clock::now();
+            auto gpuFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(gpuFrameEnd - gpuFrameStart);
+            gpuTime += gpuFrameMs;
             // imshow("Edge Detected Frame", edges);
             // cv::waitKey(0);
         }
 
-        // perform hough transform, storing lines detected in houghLines vector
+        // perform hough transform, storing lines detected in houghLines vector 
         std::vector<cv::Vec2f> houghLines;
+        auto houghStart = std::chrono::high_resolution_clock::now();
         houghTransform(edges, houghLines);
-        imshow("lanes", drawLines(framesOutput[i], houghLines));
-        cv::waitKey(0);
+        auto houghEnd = std::chrono::high_resolution_clock::now();
+        houghTime = std::chrono::duration_cast<std::chrono::milliseconds>(houghEnd - houghStart);
+        
+        if (demo)
+        {
+            imshow("lanes", drawLines(framesOutput[i], houghLines));
+            cv::waitKey(0);
+        }
+        std::cout << "are we reaching this point??" << std::endl;
+    }
+    
+    cv::destroyAllWindows();
+    auto totalEnd = std::chrono::high_resolution_clock::now();
+    //std::chrono::duration<float> totalTime = totalEnd - totalStart;
+    auto totalMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart); 
+    std::cout << "Total execution time: " << totalMilliseconds.count() << " milliseconds" << std::endl;
+
+    if (gpuAccelerated)
+    {
+        std::cout << "GPU execution time (CUDA Kernels): " << gpuTime.count() << " milliseconds" << std::endl;
+        std::cout << "CPU execution time (Hough transform): " << houghTime.count() << "milliseconds" << std::endl;
     }
 
     return 0;
