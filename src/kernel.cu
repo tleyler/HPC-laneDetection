@@ -8,13 +8,17 @@
 #define CHANNELS 3
 #define BLOCK_SIZE 16
 #define TILE_SIZE 16
+#define STRONG_EDGE 255
+#define WEAK_EDGE 125
+#define NON_EDGE 0
+#define HYST_LOW 50
+#define HYST_HIGH 150
 
 __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void softEdgeElimination(int hystHigh, int hystLow,
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void softEdgeElimination(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -25,8 +29,7 @@ __global__ void softEdgeElimination(int hystHigh, int hystLow,
     }
 }
 
-__global__ void softEdgeSearch(int hystHigh, int hystLow,
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height, int x, int y) {
+__global__ void softEdgeSearch(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height, int x, int y) {
 
     int xPos = x - 1;
     int yPos = x - 1;
@@ -50,28 +53,24 @@ __global__ void softEdgeSearch(int hystHigh, int hystLow,
         for (; yPos <= yMax; yPos++) {
             if (deviceOutput[yPos * width + xPos] == 128) {
                 deviceOutput[yPos * width + xPos] = 255;
-                softEdgeSearch << <9, 1 >> > (hystHigh, hystLow,
-                    deviceInput, deviceOutput, width, height, x, y);
+                softEdgeSearch << <9, 1 >> > (deviceInput, deviceOutput, width, height, x, y);
             }
         }
     }
 
 }
 
-__global__ void softEdgeDetection(int hystHigh, int hystLow,
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void softEdgeDetection(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     unsigned char inputValue = deviceOutput[y * width + x];
 
     if (inputValue == 255) {
-        softEdgeSearch << <9, 1 >> > (hystHigh, hystLow,
-            deviceInput, deviceOutput, width, height, x, y);
+        softEdgeSearch << <9, 1 >> > (deviceInput, deviceOutput, width, height, x, y);
     }
 }
 
-__global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow, 
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -80,31 +79,30 @@ __global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
 
 
     // if the value is below hystLow, color pixel as black
-    if (inputValue < hystLow) {
-        deviceOutput[y * width + x] = 0;
+    if (inputValue < HYST_LOW) {
+        deviceOutput[y * width + x] = NON_EDGE;
     }
 
 
     // if the value is at or above hystHigh, color pixel white
-    if (inputValue >= hystHigh) {
-        deviceOutput[y * width + x] = 255;
+    if (inputValue >= HYST_HIGH) {
+        deviceOutput[y * width + x] = STRONG_EDGE;
     }
-
 
     // if the value is at or above hystLow, but below hystHigh, color it white
     // only if it is connected to another edge pixel.
-    if (inputValue < hystHigh && inputValue >= hystLow) {
+    if (inputValue < HYST_HIGH && inputValue >= HYST_LOW) {
         // this is a maybe pixel
-        deviceOutput[y * width + x] = 128;
+        deviceOutput[y * width + x] = WEAK_EDGE;
     }
 
 }
 
-void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 50;
-    int hystHigh = 120;
+    //int hystLow = 50;
+    //int hystHigh = 100;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -120,26 +118,21 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
-        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    cudaDeviceSynchronize();
+
+    softEdgeDetection << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    cudaDeviceSynchronize();
+
+    softEdgeElimination << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
-
-    softEdgeDetection << <numBlocks, threadsPerBlock >> > (hystHigh,
-        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
-    cudaDeviceSynchronize();
-
-    softEdgeElimination << <numBlocks, threadsPerBlock >> > (hystHigh,
-        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
-    cudaDeviceSynchronize();
-
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
-
 }
 
 
@@ -148,7 +141,7 @@ __global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    bool isMaximum = false;    
+    bool isMaximum = false;
     unsigned char intensity = deviceInput[y * width + x];
     float radians = angles[y * width + x];
     float degrees = radians * 180.0 / PI;
@@ -185,7 +178,7 @@ __global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned 
             isMaximum = true;
         }
     }
-    
+
     if (!isMaximum)
     {
         deviceOutput[y * width + x] = 0;
@@ -214,7 +207,7 @@ void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, flo
     // Call the kernel to apply non-maxima suppression
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> >(deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -228,27 +221,27 @@ __global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOut
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    int gx = 0; 
+    int gx = 0;
     int gy = 0;
 
     // no need to calculate sobel[1, 4, 7] because all those values will be 0
     gx = (sobel_x[0] * deviceInput[(y - 1) * width + (x - 1)]) +
-         (sobel_x[2] * deviceInput[(y - 1) * width + (x + 1)]) +
-         (sobel_x[3] * deviceInput[(  y  ) * width + (x - 1)]) +
-         (sobel_x[5] * deviceInput[(  y  ) * width + (x + 1)]) +
-         (sobel_x[6] * deviceInput[(y + 1) * width + (x - 1)]) +
-         (sobel_x[8] * deviceInput[(y + 1) * width + (x + 1)]);
+        (sobel_x[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+        (sobel_x[3] * deviceInput[(y)*width + (x - 1)]) +
+        (sobel_x[5] * deviceInput[(y)*width + (x + 1)]) +
+        (sobel_x[6] * deviceInput[(y + 1) * width + (x - 1)]) +
+        (sobel_x[8] * deviceInput[(y + 1) * width + (x + 1)]);
 
     // no need to calculate sobel[3:5] because all those values will be 0
     gy = (sobel_y[0] * deviceInput[(y - 1) * width + (x - 1)]) +
-         (sobel_y[1] * deviceInput[(y - 1) * width + (  x  )]) +
-         (sobel_y[2] * deviceInput[(y - 1) * width + (x + 1)]) +
-         (sobel_y[6] * deviceInput[(y + 1) * width + (x - 1)]) +
-         (sobel_y[7] * deviceInput[(y + 1) * width + (  x  )]) +
-         (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
+        (sobel_y[1] * deviceInput[(y - 1) * width + (x)]) +
+        (sobel_y[2] * deviceInput[(y - 1) * width + (x + 1)]) +
+        (sobel_y[6] * deviceInput[(y + 1) * width + (x - 1)]) +
+        (sobel_y[7] * deviceInput[(y + 1) * width + (x)]) +
+        (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
 
     deviceOutput[y * width + x] = static_cast<unsigned char>(sqrt((float)(gx * gx) + (gy * gy)));
-    deviceAngles[y * width + x] = atan((float) (gy / gx));
+    deviceAngles[y * width + x] = atan((float)(gy / gx));
 }
 
 void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
@@ -269,8 +262,8 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Populate the global memory symbols with Sobel kernel values
-    int h_sobel_x[9] = {1, 0, -1, 2, 0, -2, 1, 0, -1};
-    int h_sobel_y[9] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+    int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
+    int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
 
@@ -294,18 +287,18 @@ __global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* device
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     int sum = gaussian[0] * deviceInput[(y - 1) * width + (x - 1)] +
-              gaussian[1] * deviceInput[(y - 1) * width + (  x  )] +
-              gaussian[2] * deviceInput[(y - 1) * width + (x + 1)] +
-              gaussian[3] * deviceInput[(  y  ) * width + (x - 1)] +
-              gaussian[4] * deviceInput[(  y  ) * width + (  x  )] +
-              gaussian[5] * deviceInput[(  y  ) * width + (x + 1)] +
-              gaussian[6] * deviceInput[(y + 1) * width + (x - 1)] +
-              gaussian[7] * deviceInput[(y + 1) * width + (  x  )] +
-              gaussian[8] * deviceInput[(y + 1) * width + (x + 1)];
+        gaussian[1] * deviceInput[(y - 1) * width + (x)] +
+        gaussian[2] * deviceInput[(y - 1) * width + (x + 1)] +
+        gaussian[3] * deviceInput[(y)*width + (x - 1)] +
+        gaussian[4] * deviceInput[(y)*width + (x)] +
+        gaussian[5] * deviceInput[(y)*width + (x + 1)] +
+        gaussian[6] * deviceInput[(y + 1) * width + (x - 1)] +
+        gaussian[7] * deviceInput[(y + 1) * width + (x)] +
+        gaussian[8] * deviceInput[(y + 1) * width + (x + 1)];
 
     int weights = gaussian[0] + gaussian[1] + gaussian[2] +
-                  gaussian[3] + gaussian[4] + gaussian[5] +
-                  gaussian[6] + gaussian[7] + gaussian[8];
+        gaussian[3] + gaussian[4] + gaussian[5] +
+        gaussian[6] + gaussian[7] + gaussian[8];
 
     deviceOutput[y * width + x] = static_cast<unsigned char>(sum / weights);
 }
@@ -317,20 +310,20 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     unsigned char* deviceInput;
     unsigned char* deviceOutput;
     int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
-    cudaMalloc((void**) &deviceInput, bytes);
-    cudaMalloc((void**) &deviceOutput, bytes);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
 
     // Copy memory from host to device 
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Populate the global memory symbol with Gaussian kernel values
-    int hostGaussian[9] = {1, 2, 1, 2, 4, 2, 1, 2, 1};
+    int hostGaussian[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
 
     // Call the kernel to convert the image to grayscale
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows); 
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -374,7 +367,7 @@ void grayscaleCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 
     // Call the kernel to convert the image to grayscale
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
-    const dim3 gridSize((hostInput.cols + blockSize.x - 1) / blockSize.x, (hostInput.rows + blockSize.y - 1) / blockSize.y, 1); 
+    const dim3 gridSize((hostInput.cols + blockSize.x - 1) / blockSize.x, (hostInput.rows + blockSize.y - 1) / blockSize.y, 1);
     grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
 
     // Copy memory back to host after kernel is complete
@@ -447,7 +440,7 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
     // handle edge case of not enough lines detected
     if (houghLines.size() < 2) {
-        std::cerr << "Not enough lines detected with hough transform" 
+        std::cerr << "Not enough lines detected with hough transform"
             << std::endl;
         return output;
     }
@@ -527,14 +520,14 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
     }
 
-    
+
 
 
     return output;
 }
 
 
-cv::Mat gpuCanny(const cv::Mat &frame) {
+cv::Mat gpuCanny(const cv::Mat& frame) {
     cv::Mat image = frame.clone();
     const int rows = image.rows;
     const int cols = image.cols;
@@ -566,7 +559,7 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     imshow("openCV Blurred Image", opencv_blurred);
     cv::waitKey(0);
     */
-  
+
     // apply the Sobel operator
     cv::Mat sobel = cv::Mat(rows, cols, CV_8UC1);
     float* angles = (float*)malloc(rows * cols * sizeof(float));
@@ -576,7 +569,7 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // VISUAL DEBUG: compare our implementation with openCV implementation
     /*
     cv::Mat opencv_sobel = cv::Mat(rows, cols, CV_8UC1);
-    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 1, 1); 
+    cv::Sobel(blurred, opencv_sobel, CV_8UC1, 1, 1);
     imshow("Intensity Gradient Image", sobel);
     cv::waitKey();
     imshow("openCV Intensity Gradient", opencv_sobel);
@@ -586,17 +579,28 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // apply non-maxima suppression
     cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
     nonMaximaSuppressionCuda(sobel, nms, angles);
-    imshow("Non-Maxima Suppression Image", nms);
-    
+    //imshow("Non-Maxima Suppression Image", nms);
 
-    // perform hysteresis thresholding
-    cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
-    hysteresisThresholdingCuda(nms, hst);
-    imshow("Hysteresis Thresholded Image", hst);
+
+    // perform hysteresis thresholding - stage 1
+    cv::Mat hysteresis = cv::Mat(rows, cols, CV_8UC1);
+    thresholdingCuda(nms, hysteresis);
+    imshow("Hysteresis Thresholded Image", hysteresis);
+    cv::waitKey(1);
+
+    // perform hysteresis thresholding - stage 2
+    /*cv::Mat hysteresis = cv::Mat(rows, cols, CV_8UC1);
+    hysteresisCuda(threshold, hysteresis);
+    imshow("Hysteresis Thresholded Image - Stage 2", hysteresis);
+    cv::waitKey(1);*/
+
+    /*
+    cv::Mat canny = cv::Mat(rows, cols, CV_8UC1);
+    canny = opencvCanny(frame);
+    imshow("openCV Canny", canny);
     cv::waitKey();
-
-
-    return image;
+    */
+    return hysteresis;
 }
 
 // COMMAND LINE ARGUMENTS
@@ -625,24 +629,21 @@ int main(int argc, char** argv)
 
         // This section is for when using our own GPU accelerated path
         else {
-            
+
             // create Mat to hold the edges from canny edge detection
+
             edges = gpuCanny(framesOutput[i]);
             // imshow("Edge Detected Frame", edges);
             // cv::waitKey(0);
         }
 
-        // currently houghlines only works when doing the non-gpu accelerated
-        // path, but later it will be used on frame outputs from both, and this
-        // if statement will be removed
-        if (!gpuAccelerated) {
-            // perform hough transform, storing lines detected in houghLines vector
-            std::vector<cv::Vec2f> houghLines;
-            houghTransform(edges, houghLines);
-            imshow("lanes", drawLines(framesOutput[i], houghLines));
-            cv::waitKey(0);
-        }
+        // perform hough transform, storing lines detected in houghLines vector
+        std::vector<cv::Vec2f> houghLines;
+        houghTransform(edges, houghLines);
+        imshow("lanes", drawLines(framesOutput[i], houghLines));
+        cv::waitKey(1);
     }
 
     return 0;
 }
+
