@@ -125,7 +125,6 @@ void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // Copy memory from host to device 
     cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
 
     // Call the kernel
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
