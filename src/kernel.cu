@@ -16,15 +16,6 @@ __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
 
-__global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
-
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    unsigned char inputValue = deviceInput[y * width + x];
-
-}
 
 void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
 
