@@ -632,6 +632,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     const dim3 numBlocks(ceil(cols / BLOCK_SIZE), ceil(rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     gaussianKernel << < numBlocks, threadsPerBlock >> > (gaussianInput, gaussianOutput, cols, rows);
+
     cudaDeviceSynchronize();
     // GAUSSIAN - copy device output to host
     cv::Mat gaussian = cv::Mat(height, width, CV_8UC1);
@@ -703,20 +704,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cv::imshow("OPTIMIZED hysteresis", hysteresis);
     cv::waitKey(0);
     
-    cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
+     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
-    cudaFree(gaussianInput);
-    cudaFree(gaussianOutput);
-    cudaFree(sobelInput);
-    cudaFree(sobelOutput);
-    cudaFree(sobelAngles);
-    cudaFree(nmsInput);
-    cudaFree(nmsOutput);
-    cudaFree(nmsAngles);
-    cudaFree(thresholdInput);
-    cudaFree(thresholdOutput); 
-    cudaFree(hysteresisInput);
-    cudaFree(hysteresisOutput);
+     cudaThreadExit();
 
     return output;   
 }
