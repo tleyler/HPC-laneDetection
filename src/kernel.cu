@@ -589,23 +589,37 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     int rows = frame.rows;
     
     //int rgb_bytes = frame.rows * frame.step;
-    int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
+    //int rgb_bytes = rows * cols * sizeof(unsigned char) * CHANNELS;
+    int rgb_bytes = frame.step * frame.rows;
     int bytes = rows * cols * sizeof(unsigned char);
+    cv::Mat output = cv::Mat(height, width, CV_8UC1);
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
     unsigned char* grayscaleOutput;
-    cudaMalloc((void**) &deviceInput, rgb_bytes);
-    cudaMalloc((void**) &grayscaleOutput, frame.rows * frame.cols * sizeof(unsigned char));
+    cudaMalloc<unsigned char>(&deviceInput, rgb_bytes);
+    cudaMalloc<unsigned char>(&grayscaleOutput, output.step * output.rows);
+
+    cv::imshow("Frame", frame);
+    cv::waitKey(0);
+    cudaDeviceSynchronize();
 
     // Copy host memory to device
     cudaMemcpy(deviceInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
+    /*cv::Mat copyback = cv::Mat(height, width, CV_8UC1);
+    cudaMemcpy(copyback.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("Grayscale", copyback);
+    cv::waitKey(0);*/
 
     // Set up block configuration for RGB to grayscale
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
     const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
-    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, rgb_bytes, bytes);
-    cudaDeviceSynchronize();
+    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, grayscaleOutput, width, height, frame.step, output.step);
+    cv::Mat grayscale = cv::Mat(height, width, CV_8UC1);
+    cudaMemcpy(grayscale.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("OPTIMIZED Grayscale", grayscale);
+    cv::waitKey(0);
+    //cudaDeviceSynchronize();
     
     unsigned char* gaussianOutput;
     cudaMalloc((void**)&gaussianOutput, bytes);
@@ -637,7 +651,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaDeviceSynchronize();
 
     //cudaDeviceSynchronize();
-    cv::Mat output = cv::Mat(height, width, CV_8UC1);
+    
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
     cudaFree(deviceInput);
