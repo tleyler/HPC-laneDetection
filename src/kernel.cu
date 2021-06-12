@@ -764,7 +764,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaFree(deviceGaussian);
     cudaFree(d_sobel_x);
     cudaFree(d_sobel_y);
-
+    cudaThreadExit();
     return output;   
 }
 
