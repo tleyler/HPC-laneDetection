@@ -596,9 +596,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cv::Mat output = cv::Mat(height, width, CV_8UC1);
 
     // Allocate memory on device for input and output
-    unsigned char* deviceInput;
+    unsigned char* grayscaleInput;
     unsigned char* grayscaleOutput;
-    cudaMalloc(&deviceInput, rows * cols * sizeof(unsigned char) * CHANNELS);
+    cudaMalloc(&grayscaleInput, rows * cols * sizeof(unsigned char) * CHANNELS);
     cudaMalloc(&grayscaleOutput, bytes);
 
     cv::imshow("Frame", frame);
@@ -606,7 +606,7 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     //cudaDeviceSynchronize();
 
     // Copy host memory to device
-    cudaMemcpy(deviceInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(grayscaleInput, frame.ptr(), rgb_bytes, cudaMemcpyHostToDevice);
     /*cv::Mat copyback = cv::Mat(height, width, CV_8UC1);
     cudaMemcpy(copyback.ptr(), grayscaleOutput, bytes, cudaMemcpyDeviceToHost);
     cv::imshow("Grayscale", copyback);
@@ -628,8 +628,6 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     unsigned char* gaussianInput;
     cudaMalloc(&gaussianInput, bytes);
     cudaMemcpy(gaussianInput, grayscaleOutput, bytes, cudaMemcpyDeviceToDevice);
-    
-    // GAUSSIAN - allocate memory
     unsigned char* gaussianOutput;
     cudaMalloc(&gaussianOutput, bytes);
 
@@ -649,28 +647,32 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cv::imshow("OPTIMIZED Gaussian", gaussian);
     cv::waitKey(0);
     
-
+    unsigned char* sobelInput;
+    cudaMalloc(&sobelInput, bytes);
+    cudaMemcpy(sobelInput, gaussianOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* sobelOutput;
     cudaMalloc((void**)&sobelOutput, bytes);
-    float* angles;
-    cudaMalloc((void **) &angles, rows * cols * sizeof(float));
+    float* sobelAngles;
+    cudaMalloc((void **) &sobelAngles, rows * cols * sizeof(float));
     int h_sobel_x[9] = { 1, 0, -1, 2, 0, -2, 1, 0, -1 };
     int h_sobel_y[9] = { 1, 2, 1, 0, 0, 0, -1, -2, -1 };
     cudaMemcpyToSymbol(sobel_x, h_sobel_x, 9 * sizeof(int));
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
 
-    unsigned char* sobelInput;
-    cudaMalloc(&sobelInput, bytes);
-    cudaMemcpy(sobelInput, gaussianOutput, bytes, cudaMemcpyDeviceToDevice);
-    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, angles, cols, rows);
+    
+    sobelKernel << <numBlocks, threadsPerBlock >> > (sobelInput, sobelOutput, sobelAngles, cols, rows);
     cudaDeviceSynchronize();
 
     unsigned char* nmsInput;
     cudaMalloc(&nmsInput, bytes);
     cudaMemcpy(nmsInput, sobelOutput, bytes, cudaMemcpyDeviceToDevice);
+
+    float* nmsAngles;
+    cudaMalloc(&nmsAngles, rows * cols * sizeof(float));
+    cudaMemcpy(nmsAngles, sobelAngles, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
     unsigned char* nmsOutput;
     cudaMalloc((void**)&nmsOutput, bytes);
-    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, angles, cols, rows);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, nmsAngles, cols, rows);
     cudaDeviceSynchronize();
 
 
@@ -694,13 +696,17 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
-    cudaFree(deviceInput);
-    
+    cudaFree(gaussianInput);
     cudaFree(gaussianOutput);
+    cudaFree(sobelInput);
     cudaFree(sobelOutput);
-    cudaFree(angles);
+    cudaFree(sobelAngles);
+    cudaFree(nmsInput);
     cudaFree(nmsOutput);
+    cudaFree(nmsAngles);
+    cudaFree(thresholdInput);
     cudaFree(thresholdOutput); 
+    cudaFree(hysteresisInput);
     cudaFree(hysteresisOutput);
 
     return output;   
