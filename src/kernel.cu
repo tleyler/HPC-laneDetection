@@ -75,8 +75,6 @@ void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
     hysteresisKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
-
-
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
@@ -131,32 +129,30 @@ void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
 }
 
 
-__global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void thresholdingKernel(unsigned char* deviceInput, 
+    unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     unsigned char inputValue = deviceInput[y * width + x];
 
-
-    // if the value is below hystLow, color pixel as black
+    // if the value is below hystLow, mark as non-edge
     if (inputValue < HYST_LOW) {
         deviceOutput[y * width + x] = NON_EDGE;
     }
 
-
-    // if the value is at or above hystHigh, color pixel white
+    // if the value is at or above hystHigh, mark as strong edge
     if (inputValue >= HYST_HIGH) {
         deviceOutput[y * width + x] = STRONG_EDGE;
     }
 
-    // if the value is at or above hystLow, but below hystHigh, color it white
-    // only if it is connected to another edge pixel.
+    // if the value is at or above hystLow, but below hystHigh,
+    // mark it as a weak edge
     if (inputValue < HYST_HIGH && inputValue >= HYST_LOW) {
         // this is a maybe pixel
         deviceOutput[y * width + x] = WEAK_EDGE;
     }
-
 }
 
 void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
@@ -174,9 +170,8 @@ void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    thresholdingKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
-    
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > 
+        (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -539,8 +534,6 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     lanes.push_back(houghLines[rightLaneCandidate]);
 
     // Draw the lines
-    // Code for drawing lines on an image pulled from houghlines.cpp in opencv 
-    // tutorials and adapted for our purpose
     for (size_t i = 0; i < lanes.size(); i++)
     {
         // elements of this polar coordinate line
@@ -567,11 +560,7 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
         // testing line to show theta values of final lines
         //std::cerr << "Theta = " << theta << std::endl;
-
     }
-
-    
-
 
     return output;
 }
