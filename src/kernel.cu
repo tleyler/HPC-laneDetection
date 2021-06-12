@@ -571,14 +571,9 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     return output;
 }
 
-/*
-void grayscaleOptimized(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
-{
-    const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
-    const dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y, 1);
-    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
-}*/
-
+// This version of our GPU canny edge detetion path is an attempt at optimizing
+// the process by keeping images in device memory and reducing copies from
+// host to device and back.
 cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
 {
     int width = frame.cols;
@@ -737,6 +732,9 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     return output;   
 }
 
+// This method represents our GPU accelerated canny edge detection
+// implementation. It handles calling the different methods for the various
+// steps that make up that process, and showing intermediate images if in demo
 cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
     cv::Mat image = frame.clone();
     const int rows = image.rows;
@@ -850,23 +848,26 @@ int main(int argc, char** argv)
         }
     }
     
-
+    // extract the video frames into a vector
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
+    // start timing for the total run time including hough
     auto totalStart = std::chrono::high_resolution_clock::now();
     std::chrono::milliseconds opencvTime(0);
     std::chrono::milliseconds gpuTime(0);
     std::chrono::milliseconds houghTime(0);
+    // loop through each fram
     for (int i = 0; i < framesOutput.size(); i++)
     {
+        // create Mat to hold the edges from canny edge detection
         cv::Mat edges;
-
         int size = framesOutput.size();
+
         // This section is for when using the opencvCanny() implementation 
         // path (non-GPU accelarated)
         if (!gpuAccelerated) {
-            // create Mat to hold the edges from canny edge detection
+            // start timing for OpenCV canny edge detection
             auto opencvFrameStart = std::chrono::high_resolution_clock::now();
             edges = opencvCanny(framesOutput[i]);
             auto opencvFrameEnd = std::chrono::high_resolution_clock::now();
@@ -876,7 +877,7 @@ int main(int argc, char** argv)
 
         // This section is for when using our own GPU accelerated path
         else {
-            // create Mat to hold the edges from canny edge detection
+            // start timing for GPU edge detecton
             auto gpuFrameStart = std::chrono::high_resolution_clock::now();
             if (demo == true)
             {
@@ -904,7 +905,8 @@ int main(int argc, char** argv)
             cv::waitKey(0);
         }
     }
-      
+    
+    // end the timing for total run time including hough (for this frame)
     auto totalEnd = std::chrono::high_resolution_clock::now();
     //std::chrono::duration<float> totalTime = totalEnd - totalStart;
     auto totalMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart); 
