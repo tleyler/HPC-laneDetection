@@ -4,6 +4,8 @@
 #include "device_launch_parameters.h"
 #include <iostream>
 #include <vector>
+#include <queue>
+#include <utility>
 #define PI 3.14159265
 #define CHANNELS 3
 #define BLOCK_SIZE 16
@@ -12,6 +14,113 @@
 __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
+
+
+__global__ void hysteresisThresholdingKernel(int hystHigh, int hystLow,
+    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned char inputValue = deviceInput[y * width + x];
+
+}
+
+void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+    // establish the low and high thresholds for the hysteresis thresholding
+    int hystLow = 150;
+    int hystHigh = 200;
+
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
+        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+
+    std::queue<std::pair<int, int>> strongEdges;
+
+
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
+
+
+
+
+__global__ void thresholdingKernel(int hystHigh, int hystLow, 
+    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned char inputValue = deviceInput[y * width + x];
+
+    // if the value is below hystLow, color pixel as black
+    if (inputValue < hystLow) {
+        deviceOutput[y * width + x] = 0;
+    }
+
+    // if the value is at or above hystHigh, color pixel white
+    if (inputValue >= hystHigh) {
+        deviceOutput[y * width + x] = 255;
+    }
+
+    // if the value is at or above hystLow, but below hystHigh, color it white
+    // only if it is connected to another edge pixel.
+    if (inputValue < hystHigh && inputValue >= hystLow) {
+        // this is a maybe pixel
+        deviceOutput[y * width + x] = 128;
+    }
+}
+
+void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+
+    // establish the low and high thresholds for the hysteresis thresholding
+    int hystLow = 150;
+    int hystHigh = 200;
+
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
+        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
+
 
 __global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* angles, int width, int height)
 {
@@ -317,7 +426,8 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
     // handle edge case of not enough lines detected
     if (houghLines.size() < 2) {
-        std::cerr << "Not enough lines detected with hough transform" << std::endl;
+        std::cerr << "Not enough lines detected with hough transform" 
+            << std::endl;
         return output;
     }
 
@@ -456,7 +566,17 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
     nonMaximaSuppressionCuda(sobel, nms, angles);
     imshow("Non-Maxima Suppression Image", nms);
+    
+
+    // perform hysteresis thresholding
+    cv::Mat threshold = cv::Mat(rows, cols, CV_8UC1);
+    thresholdingCuda(nms, threshold);
+    cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
+    hysteresisThresholdingCuda(threshold, hst);
+
+    imshow("Hysteresis Thresholded Image", hst);
     cv::waitKey();
+
 
     return image;
 }
@@ -470,7 +590,7 @@ int main(int argc, char** argv)
     std::vector<cv::Mat> framesOutput;
     extractFrames(videoFilePath, framesOutput);
 
-    bool gpuAccelerated = false;
+    bool gpuAccelerated = true;
 
     for (int i = 0; i < framesOutput.size(); i++)
     {
