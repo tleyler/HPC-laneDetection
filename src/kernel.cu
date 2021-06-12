@@ -8,13 +8,81 @@
 #define CHANNELS 3
 #define BLOCK_SIZE 16
 #define TILE_SIZE 16
+#define STRONG_EDGE 255
+#define WEAK_EDGE 125
+#define NON_EDGE 0
+#define HYST_LOW 50
+#define HYST_HIGH 150
 
 __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow, 
-    unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+__global__ void hysteresisKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned char intensity = deviceInput[y * width + x];
+
+    if (intensity == WEAK_EDGE)
+    {
+        // check all the neighbors for strong edges
+        bool strongNeighbor = false;
+        for (int i = -1; i <= 1; i++)
+        {
+            for (int j = -1; j <= 1; j++)
+            {
+                if (i == 0 && j == 0)
+                {
+                    break; // comparing the pixel to itself
+                }
+                else if (deviceInput[(y + i) * width + (x + j)] == STRONG_EDGE)
+                {
+                    strongNeighbor = true;
+                }
+            }
+        }
+        if (strongNeighbor)
+        {
+            deviceOutput[y * width + x] = STRONG_EDGE;
+        }
+        else
+        {
+            deviceOutput[y * width + x] = NON_EDGE;
+        }
+    }
+}
+
+void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
+{
+    // Allocate memory on device for input and output
+    unsigned char* deviceInput;
+    unsigned char* deviceOutput;
+    int bytes = hostInput.rows * hostInput.cols * sizeof(unsigned char);
+    cudaMalloc((void**)&deviceInput, bytes);
+    cudaMalloc((void**)&deviceOutput, bytes);
+
+    // Copy memory from host to device 
+    cudaMemcpy(deviceInput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceOutput, hostInput.ptr(), bytes, cudaMemcpyHostToDevice);
+
+    // Call the kernel
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+    hysteresisKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+
+
+    // Copy memory back to host after kernel is complete
+    cudaDeviceSynchronize();
+    cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
+    cudaFree(deviceInput);
+    cudaFree(deviceOutput);
+}
+
+__global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -23,31 +91,30 @@ __global__ void hysteresisThresholdingKernel(int &hystHigh, int& hystLow,
 
 
     // if the value is below hystLow, color pixel as black
-    if (inputValue < hystLow) {
-        deviceOutput[y * width + x] = 0;
+    if (inputValue < HYST_LOW) {
+        deviceOutput[y * width + x] = NON_EDGE;
     }
 
 
     // if the value is at or above hystHigh, color pixel white
-    if (inputValue >= hystHigh) {
-        deviceOutput[y * width + x] = 255;
+    if (inputValue >= HYST_HIGH) {
+        deviceOutput[y * width + x] = STRONG_EDGE;
     }
-
 
     // if the value is at or above hystLow, but below hystHigh, color it white
     // only if it is connected to another edge pixel.
-    if (inputValue < hystHigh && inputValue >= hystLow) {
+    if (inputValue < HYST_HIGH && inputValue >= HYST_LOW) {
         // this is a maybe pixel
-        deviceOutput[y * width + x] = 125;
+        deviceOutput[y * width + x] = WEAK_EDGE;
     }
 
 }
 
-void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
+void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     // establish the low and high thresholds for the hysteresis thresholding
-    int hystLow = 50;
-    int hystHigh = 150;
+    //int hystLow = 50;
+    //int hystHigh = 100;
 
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -64,15 +131,15 @@ void hysteresisThresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    hysteresisThresholdingKernel << <numBlocks, threadsPerBlock >> > (hystHigh,
-        hystLow, deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
+
+    
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
-
 }
 
 
@@ -519,16 +586,28 @@ cv::Mat gpuCanny(const cv::Mat &frame) {
     // apply non-maxima suppression
     cv::Mat nms = cv::Mat(rows, cols, CV_8UC1);
     nonMaximaSuppressionCuda(sobel, nms, angles);
-    imshow("Non-Maxima Suppression Image", nms);
+    //imshow("Non-Maxima Suppression Image", nms);
     
 
-    // perform hysteresis thresholding
-    cv::Mat hst = cv::Mat(rows, cols, CV_8UC1);
-    hysteresisThresholdingCuda(nms, hst);
-    imshow("Hysteresis Thresholded Image", hst);
-    cv::waitKey();
+    // perform hysteresis thresholding - stage 1
+    cv::Mat threshold = cv::Mat(rows, cols, CV_8UC1);
+    thresholdingCuda(nms, threshold);
+    //imshow("Hysteresis Thresholded Image - Stage 1", threshold);
+    //cv::waitKey();
 
-    return hst;
+    // perform hysteresis thresholding - stage 2
+    cv::Mat hysteresis = cv::Mat(rows, cols, CV_8UC1);
+    hysteresisCuda(threshold, hysteresis);
+    imshow("Hysteresis Thresholded Image - Stage 2", hysteresis);
+    cv::waitKey();
+    
+    /*
+    cv::Mat canny = cv::Mat(rows, cols, CV_8UC1);
+    canny = opencvCanny(frame);
+    imshow("openCV Canny", canny);
+    cv::waitKey();
+    */
+    return hysteresis;
 }
 
 // COMMAND LINE ARGUMENTS
@@ -559,21 +638,17 @@ int main(int argc, char** argv)
         else {
             
             // create Mat to hold the edges from canny edge detection
+            
             edges = gpuCanny(framesOutput[i]);
             // imshow("Edge Detected Frame", edges);
             // cv::waitKey(0);
         }
 
-        // currently houghlines only works when doing the non-gpu accelerated
-        // path, but later it will be used on frame outputs from both, and this
-        // if statement will be removed
-        if (!gpuAccelerated) {
-            // perform hough transform, storing lines detected in houghLines vector
-            std::vector<cv::Vec2f> houghLines;
-            houghTransform(edges, houghLines);
-            imshow("lanes", drawLines(framesOutput[i], houghLines));
-            cv::waitKey(0);
-        }
+        // perform hough transform, storing lines detected in houghLines vector
+        std::vector<cv::Vec2f> houghLines;
+        houghTransform(edges, houghLines);
+        imshow("lanes", drawLines(framesOutput[i], houghLines));
+        cv::waitKey(0);
     }
 
     return 0;
