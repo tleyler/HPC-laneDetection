@@ -669,11 +669,10 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
 
     unsigned char* nmsOutput;
     cudaMalloc(&nmsOutput, bytes);
-    cudaMemcpy(nmsOutput, nmsOutput, bytes, cudaMemcpyDeviceToDevice);
+    cudaMemcpy(nmsOutput, nmsInput, bytes, cudaMemcpyDeviceToDevice);
     nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> > (nmsInput, nmsOutput, nmsAngles, cols, rows);
     cudaDeviceSynchronize();
     cv::Mat nms = cv::Mat(height, width, CV_8UC1);
-    //cudaDeviceSynchronize();
     cudaMemcpy(nms.ptr(), nmsOutput, bytes, cudaMemcpyDeviceToHost);
     cv::imshow("OPTIMIZED nms", nms);
     cv::waitKey(0);
@@ -685,14 +684,24 @@ cv::Mat gpuOptimized(const cv::Mat &frame)
     cudaMalloc(&thresholdOutput, bytes);
     thresholdingKernel << <numBlocks, threadsPerBlock >> > (thresholdInput, thresholdOutput, cols, rows);
     cudaDeviceSynchronize();
+    cv::Mat threshold = cv::Mat(height, width, CV_8UC1);
+    cudaMemcpy(threshold.ptr(), thresholdOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("OPTIMIZED threshold", threshold);
+    cv::waitKey(0);
+
 
     unsigned char* hysteresisInput;
     cudaMalloc(&hysteresisInput, bytes);
     cudaMemcpy(hysteresisInput, thresholdOutput, bytes, cudaMemcpyDeviceToDevice);
     unsigned char* hysteresisOutput;
     cudaMalloc(&hysteresisOutput, bytes);
+    cudaMemcpy(hysteresisOutput, hysteresisInput, bytes, cudaMemcpyDeviceToDevice);
     hysteresisKernel << <numBlocks, threadsPerBlock >> > (hysteresisInput, hysteresisOutput, cols, rows);
     cudaDeviceSynchronize();
+    cv::Mat hysteresis = cv::Mat(height, width, CV_8UC1);
+    cudaMemcpy(hysteresis.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
+    cv::imshow("OPTIMIZED hysteresis", hysteresis);
+    cv::waitKey(0);
     
     cudaMemcpy(output.ptr(), hysteresisOutput, bytes, cudaMemcpyDeviceToHost);
 
@@ -916,6 +925,8 @@ int main(int argc, char** argv)
         houghTransform(edges, houghLines);
         auto houghEnd = std::chrono::high_resolution_clock::now();
         houghTime += std::chrono::duration_cast<std::chrono::milliseconds>(houghEnd - houghStart);
+        imshow("lanes", drawLines(framesOutput[i], houghLines));
+        cv::waitKey(0);
         
         if (demo)
         {
