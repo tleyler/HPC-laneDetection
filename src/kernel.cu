@@ -679,7 +679,7 @@ int main(int argc, char** argv)
     else
     {
         std::cerr << "Invalid command line arguments!1" << std::endl;
-        return;
+        return -1;
     }
 
     bool demo = false;
@@ -693,7 +693,7 @@ int main(int argc, char** argv)
         else
         {
             std::cerr << "Invalid command line arguments!2" << std::endl;
-            return;
+            return -1;
         }
     }
     
@@ -702,8 +702,13 @@ int main(int argc, char** argv)
     extractFrames(videoFilePath, framesOutput);
 
     auto totalStart = std::chrono::high_resolution_clock::now();
-    std::chrono::high_resolution_clock::duration gpuTime;
-    std::chrono::high_resolution_clock::duration houghTime;
+    //std::chrono::high_resolution_clock::duration gpuTime = std::chrono::high_resolution_clock::rep(std::chrono::duration_values::zero);
+    //auto gpuTime = std::chrono::high_resolution_clock::duration::zero;
+    //auto houghTime = std::chrono::high_resolution_clock::duration::zero;
+    std::chrono::milliseconds gpuTime(0);
+    std::chrono::milliseconds houghTime(0);
+    //std::chrono::high_resolution_clock::duration houghTime{};
+    //
     for (int i = 0; i < framesOutput.size(); i++)
     {
         cv::Mat edges;
@@ -742,10 +747,8 @@ int main(int argc, char** argv)
             imshow("lanes", drawLines(framesOutput[i], houghLines));
             cv::waitKey(0);
         }
-        std::cout << "are we reaching this point??" << std::endl;
     }
-    
-    cv::destroyAllWindows();
+      
     auto totalEnd = std::chrono::high_resolution_clock::now();
     //std::chrono::duration<float> totalTime = totalEnd - totalStart;
     auto totalMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart); 
@@ -756,6 +759,6 @@ int main(int argc, char** argv)
         std::cout << "GPU execution time (CUDA Kernels): " << gpuTime.count() << " milliseconds" << std::endl;
         std::cout << "CPU execution time (Hough transform): " << houghTime.count() << "milliseconds" << std::endl;
     }
-
+    cv::destroyAllWindows();
     return 0;
 }
