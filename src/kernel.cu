@@ -264,6 +264,7 @@ void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, flo
     cudaMemcpy(hostOutput.ptr(), deviceOutput, bytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
+    cudaFree(deviceAngles);
 }
 
 __global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* deviceAngles, int width, int height)
@@ -328,6 +329,7 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
     cudaMemcpy(hostAngles, deviceAngles, anglesBytes, cudaMemcpyDeviceToHost);
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
+    cudaFree(deviceAngles);
 }
 
 
