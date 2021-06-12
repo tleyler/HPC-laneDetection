@@ -707,6 +707,7 @@ int main(int argc, char** argv)
     //std::chrono::high_resolution_clock::duration gpuTime = std::chrono::high_resolution_clock::rep(std::chrono::duration_values::zero);
     //auto gpuTime = std::chrono::high_resolution_clock::duration::zero;
     //auto houghTime = std::chrono::high_resolution_clock::duration::zero;
+    std::chrono::milliseconds opencvTime(0);
     std::chrono::milliseconds gpuTime(0);
     std::chrono::milliseconds houghTime(0);
     //std::chrono::high_resolution_clock::duration houghTime{};
@@ -719,8 +720,11 @@ int main(int argc, char** argv)
         // path (non-GPU accelarated)
         if (!gpuAccelerated) {
             // create Mat to hold the edges from canny edge detection
-            
+            auto opencvFrameStart = std::chrono::high_resolution_clock::now();
             edges = opencvCanny(framesOutput[i]);
+            auto opencvFrameEnd = std::chrono::high_resolution_clock::now();
+            auto opencvFrameMs = std::chrono::duration_cast<std::chrono::milliseconds>(opencvFrameEnd - opencvFrameStart);
+            opencvTime += opencvFrameMs;
             //imshow("Edge Detected Frame", edges);
             //cv::waitKey(0);
         }
@@ -758,8 +762,13 @@ int main(int argc, char** argv)
 
     if (gpuAccelerated)
     {
-        std::cout << "GPU execution time (CUDA Kernels): " << gpuTime.count() << " milliseconds" << std::endl;
-        std::cout << "CPU execution time (Hough transform): " << houghTime.count() << "milliseconds" << std::endl;
+        std::cout << "GPU Canny execution time (CUDA Kernels): " << gpuTime.count() << " milliseconds" << std::endl;
+        std::cout << "CPU Hough transform execution time: " << houghTime.count() << "milliseconds" << std::endl;
+    }
+    if (!gpuAccelerated)
+    {
+        std::cout << "CPU openCV::Canny() execution time: " << opencvTime.count() << " milliseconds" << std::endl;
+        std::cout << "CPU Hough transform execution time: " << houghTime.count() << "milliseconds" << std::endl;
     }
     cv::destroyAllWindows();
     return 0;
