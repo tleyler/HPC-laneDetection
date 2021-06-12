@@ -20,7 +20,11 @@ __constant__ int gaussian[9];
 __constant__ int sobel_x[9];
 __constant__ int sobel_y[9];
 
-__global__ void hysteresisKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+
+
+// This method is the kernel for the final step of hysteresis thresholding
+__global__ void hysteresisKernel(unsigned char* deviceInput, unsigned char* 
+    deviceOutput, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -56,6 +60,10 @@ __global__ void hysteresisKernel(unsigned char* deviceInput, unsigned char* devi
     }
 }
 
+
+
+// This method is responsible for handling memory and calling the kernel for
+// the final step of hysteresis thresholding
 void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 {
     // Allocate memory on device for input and output
@@ -73,9 +81,8 @@ void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    hysteresisKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
-
+    hysteresisKernel << <numBlocks, threadsPerBlock >> > (deviceInput, 
+        deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -84,6 +91,10 @@ void hysteresisCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaFree(deviceOutput);
 }
 
+
+
+// This method is our CPU powered BFS implementation of the second portion of
+// hysteresis thresholding
 void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
 
     std::queue<std::pair<int, int>> strongEdges;
@@ -109,21 +120,35 @@ void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
         strongEdges.pop();
         hostOutput.at<uchar>(row, col) = 255;
 
-        //examine all neighbors
+        // examine all neighbors, after checking if they are contained within
+        // the image boundaries
         std::vector<std::pair<int, int>> neighbors;
-        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col - 1)); }
-        if (col - 1 > 0) { neighbors.push_back(std::pair<int, int>(row, col - 1)); }
-        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col - 1)); }
-        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col)); }
-        if (row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col)); }
-        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back(std::pair<int, int>(row - 1, col + 1)); }
-        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>(row, col + 1)); }
-        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { neighbors.push_back(std::pair<int, int>(row + 1, col + 1)); }
+        if (col - 1 > 0 && row - 1 > 0) { neighbors.push_back
+            (std::pair<int, int>(row - 1, col - 1)); }
+        if (col - 1 > 0) { neighbors.push_back
+            (std::pair<int, int>(row, col - 1)); }
+        if (col - 1 > 0 && row + 1 < hostInput.rows) { neighbors.push_back
+            (std::pair<int, int>(row + 1, col - 1)); }
+        if (row - 1 > 0) { neighbors.push_back(std::pair<int, int>
+            (row - 1, col)); }
+        if (row + 1 < hostInput.rows) { neighbors.push_back
+            (std::pair<int, int>(row + 1, col)); }
+        if (col + 1 < hostInput.cols && row - 1 > 0) { neighbors.push_back
+            (std::pair<int, int>(row - 1, col + 1)); }
+        if (col + 1 < hostInput.cols) { neighbors.push_back(std::pair<int, int>
+            (row, col + 1)); }
+        if (col + 1 < hostInput.cols && row + 1 < hostInput.rows) { 
+            neighbors.push_back(std::pair<int, int>(row + 1, col + 1)); }
 
+        // For each neighbor, if it is a weak edge, make it a strong edge and 
+        // queue it 
         for (int i = 0; i < neighbors.size(); i++) {
-            if (hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) == 128) {
-                strongEdges.push(std::pair<int, int>(neighbors[i].first, neighbors[i].second));
-                hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) = 255;
+            if (hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) == 
+                128) {
+                strongEdges.push(std::pair<int, int>(neighbors[i].first, 
+                    neighbors[i].second));
+                hostInput.at<uchar>(neighbors[i].first, neighbors[i].second) = 
+                    255;
             }
         }
 
@@ -131,7 +156,12 @@ void hysteresisCPU(cv::Mat& hostInput, cv::Mat& hostOutput) {
 }
 
 
-__global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height) {
+
+
+// This method is the kernel for the first step of hysteresis thresholding
+// populating the output image with only non, weak, and strong edge indicators
+__global__ void thresholdingKernel(unsigned char* deviceInput, 
+    unsigned char* deviceOutput, int width, int height) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -159,6 +189,10 @@ __global__ void thresholdingKernel(unsigned char* deviceInput, unsigned char* de
 
 }
 
+
+
+// This method is responsible for handling memory and calling the kernel that 
+// does the first portion of hysteresis thresholding
 void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -174,9 +208,8 @@ void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
     const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE),
         ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    thresholdingKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows);
-
-    
+    thresholdingKernel << <numBlocks, threadsPerBlock >> > (deviceInput, 
+        deviceOutput, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -186,7 +219,10 @@ void thresholdingCuda(const cv::Mat& hostInput, cv::Mat& hostOutput) {
 }
 
 
-__global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* angles, int width, int height)
+
+// This method is the kernel that handles non-maxima suppression
+__global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, 
+    unsigned char* deviceOutput, float* angles, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -235,7 +271,12 @@ __global__ void nonMaximaSuppressionKernel(unsigned char* deviceInput, unsigned 
     }
 }
 
-void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
+
+
+// This method is responsible for memory managment and calling the kernel
+// that performs the non-maxima suppression on a frame
+void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, 
+    float* hostAngles)
 {
     // Allocate memory on device for input and output
     unsigned char* deviceInput;
@@ -255,9 +296,11 @@ void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, flo
     cudaMemcpy(deviceAngles, hostAngles, anglesBytes, cudaMemcpyHostToDevice);
 
     // Call the kernel to apply non-maxima suppression
-    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), 
+        ceil(hostInput.rows / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> >(deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+    nonMaximaSuppressionKernel << <numBlocks, threadsPerBlock >> >(deviceInput, 
+        deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -267,7 +310,11 @@ void nonMaximaSuppressionCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, flo
     cudaFree(deviceAngles);
 }
 
-__global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOutput, float* deviceAngles, int width, int height)
+
+
+// This kernel creates an intensity gradient using the sobel operator
+__global__ void sobelKernel(unsigned char* deviceInput, 
+    unsigned char* deviceOutput, float* deviceAngles, int width, int height)
 {
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -291,10 +338,15 @@ __global__ void sobelKernel(unsigned char* deviceInput, unsigned char* deviceOut
          (sobel_y[7] * deviceInput[(y + 1) * width + (  x  )]) +
          (sobel_y[8] * deviceInput[(y + 1) * width + (x + 1)]);
 
-    deviceOutput[y * width + x] = static_cast<unsigned char>(sqrt((float)(gx * gx) + (gy * gy)));
+    deviceOutput[y * width + x] = 
+        static_cast<unsigned char>(sqrt((float)(gx * gx) + (gy * gy)));
     deviceAngles[y * width + x] = atan((float) (gy / gx));
 }
 
+
+
+// This method is responsible for managing memory and calling the kernel
+// that creates an intensity gradient using the sobel operator
 void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
 {
     // Allocate memory on device for input and output
@@ -319,9 +371,11 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
     cudaMemcpyToSymbol(sobel_y, h_sobel_y, 9 * sizeof(int));
 
     // Call the kernel to apply the Sobel filter
-    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows 
+        / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, deviceAngles, hostInput.cols, hostInput.rows);
+    sobelKernel << <numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, 
+        deviceAngles, hostInput.cols, hostInput.rows);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -333,7 +387,11 @@ void sobelCuda(const cv::Mat& hostInput, cv::Mat& hostOutput, float* hostAngles)
 }
 
 
-__global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* deviceOutput, int width, int height)
+
+// This kernel performs a gaussian blur on the image deviceInput and outputs it
+// to deviceOutput
+__global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* 
+    deviceOutput, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -356,6 +414,9 @@ __global__ void gaussianKernel(unsigned char* deviceInput, unsigned char* device
 }
 
 
+
+// This method is responsible for managing memory and calling the kernel that
+// performs gaussian blur
 void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 {
     // Allocate memory on device for input and output
@@ -373,9 +434,11 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaMemcpyToSymbol(gaussian, hostGaussian, 9 * sizeof(int));
 
     // Call the kernel to convert the image to grayscale
-    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows / BLOCK_SIZE), 1);
+    const dim3 numBlocks(ceil(hostInput.cols / BLOCK_SIZE), ceil(hostInput.rows 
+        / BLOCK_SIZE), 1);
     const dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows); 
+    gaussianKernel << < numBlocks, threadsPerBlock >> > (deviceInput,
+        deviceOutput, hostInput.cols, hostInput.rows); 
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -385,8 +448,10 @@ void gaussianCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 }
 
 
-__global__ void grayscaleKernel(unsigned char* rgbInput, unsigned char* grayOutput, 
-                                int width, int height, int colorWidthStep, int grayWidthStep)
+// This kernel is responsible for converting the color frame into a greyscale
+// image, and outputing it to grayOutput
+__global__ void grayscaleKernel(unsigned char* rgbInput, unsigned char* 
+    grayOutput, int width, int height, int colorWidthStep, int grayWidthStep)
 {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -405,6 +470,10 @@ __global__ void grayscaleKernel(unsigned char* rgbInput, unsigned char* grayOutp
     }
 }
 
+
+
+// This method is responsible for managing memory and calling the kernel that
+// performs the coversion from color to a greyscale image
 void grayscaleCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 {
     // Allocate memory on device for input and output
@@ -420,8 +489,10 @@ void grayscaleCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
 
     // Call the kernel to convert the image to grayscale
     const dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE, 1);
-    const dim3 gridSize((hostInput.cols + blockSize.x - 1) / blockSize.x, (hostInput.rows + blockSize.y - 1) / blockSize.y, 1); 
-    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
+    const dim3 gridSize((hostInput.cols + blockSize.x - 1) / blockSize.x, 
+        (hostInput.rows + blockSize.y - 1) / blockSize.y, 1); 
+    grayscaleKernel << <gridSize, blockSize >> > (deviceInput, deviceOutput, 
+        hostInput.cols, hostInput.rows, hostInput.step, hostOutput.step);
 
     // Copy memory back to host after kernel is complete
     cudaDeviceSynchronize();
@@ -429,6 +500,8 @@ void grayscaleCuda(const cv::Mat& hostInput, cv::Mat& hostOutput)
     cudaFree(deviceInput);
     cudaFree(deviceOutput);
 }
+
+
 
 // This function takes in a path to a video file (which are passed in as command line args to main)
 // as the first parameter and outputs each extracted frame to a vector of Mat items which is passed 
@@ -458,6 +531,7 @@ void extractFrames(const std::string& videoFilePath, std::vector<cv::Mat>& frame
 }
 
 
+
 // This function accepts a single frame and detects edges in it using opencv
 // Canny(). It returns the edge detected image.
 cv::Mat opencvCanny(const cv::Mat& frame) {
@@ -475,6 +549,7 @@ cv::Mat opencvCanny(const cv::Mat& frame) {
 }
 
 
+
 // This function accepts a single frame and performs a hough transform on it 
 // Returns a vector of the lines that were detected
 void houghTransform(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
@@ -482,6 +557,8 @@ void houghTransform(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
     HoughLines(frame, houghLines, 1, CV_PI / 180, 150, 0, 0);
     return;
 }
+
+
 
 // This method determines the two best candidates out of all the lines picked
 // up by the hough transform for the left and right lane, then draws them 
@@ -566,10 +643,11 @@ cv::Mat drawLines(const cv::Mat& frame, std::vector<cv::Vec2f>& houghLines) {
 
         // testing line to show theta values of final lines
         //std::cerr << "Theta = " << theta << std::endl;
-
     }
     return output;
 }
+
+
 
 // This version of our GPU canny edge detetion path is an attempt at optimizing
 // the process by keeping images in device memory and reducing copies from
@@ -732,6 +810,8 @@ cv::Mat gpuOptimized(const cv::Mat &frame, bool debug)
     return output;   
 }
 
+
+
 // This method represents our GPU accelerated canny edge detection
 // implementation. It handles calling the different methods for the various
 // steps that make up that process, and showing intermediate images if in demo
@@ -799,6 +879,8 @@ cv::Mat gpuCanny(const cv::Mat &frame, bool demo) {
     
     return hysteresis;
 }
+
+
 
 // COMMAND LINE ARGUMENTS
 // argv[0] = program name
