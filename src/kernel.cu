@@ -978,9 +978,13 @@ int main(int argc, char** argv)
             {
                 edges = gpuCanny(framesOutput[i], demo);
             }
-            else
+            else if (debug == true)
             {
+                
                 edges = gpuOptimized(framesOutput[i], debug);
+            }
+            else {
+                edges = gpuCanny(framesOutput[i], demo);
             }
             auto gpuFrameEnd = std::chrono::high_resolution_clock::now();
             auto gpuFrameMs = std::chrono::duration_cast
@@ -1023,7 +1027,7 @@ int main(int argc, char** argv)
         std::cout << "CPU openCV::Canny() execution time: " << 
             opencvTime.count() << " milliseconds" << std::endl;
         std::cout << "CPU Hough transform execution time: " << houghTime.count() 
-            << "milliseconds" << std::endl;
+            << " milliseconds" << std::endl;
     }
     cv::destroyAllWindows();
     return 0;
